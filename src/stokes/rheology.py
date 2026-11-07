@@ -19,22 +19,32 @@ def cauchy_stress(
     b_glen = glen_coefficient(config.rheology.temperature)
     b = np.empty((3, 16), dtype=np.float64)
     dofs = config.mesh.cell_dofs()
-    sigma = np.empty((config.mesh.num_cells, 3), dtype=np.float64)
+    sigma = np.zeros((config.mesh.num_points, 3), dtype=np.float64)
+    weights = np.zeros(config.mesh.num_points, dtype=np.float64)
     for i, cell in enumerate(config.mesh.cells):
-        dndxi = shape.q8_shape_gradients(0.0, 0.0)
-        jac = dndxi @ config.mesh.points[cell]
-        dndx = np.linalg.solve(jac, dndxi)
-        b[0, 0::2] = b[2, 1::2] = dndx[0]
-        b[1, 1::2] = b[2, 0::2] = dndx[1]
-        b[1, 0::2] = b[0, 1::2] = 0.0
-        d = b @ uvp[dofs[i, :16]]
-        mu = glen_viscosity(b_glen=b_glen, d=d)
-        t11 = 2.0 * mu * d[0]
-        t22 = 2.0 * mu * d[1]
-        t12 = mu * d[2]
-        p = uvp[dofs[i, 16:]].mean()
-        sigma[i] = (t11 - p, t22 - p, t12)
-    return sigma
+        for (xi, eta), w in zip(shape.Q9_GAUSS_POINTS, shape.Q9_GAUSS_WEIGHTS):
+            n4 = shape.q4_shape_functions(xi, eta)
+            n8 = shape.q8_shape_functions(xi, eta)
+            dndxi = shape.q8_shape_gradients(xi, eta)
+            jac = dndxi @ config.mesh.points[cell]
+            w_det = w * np.linalg.det(jac)
+            dndx = np.linalg.solve(jac, dndxi)
+            b[0, 0::2] = b[2, 1::2] = dndx[0]
+            b[1, 1::2] = b[2, 0::2] = dndx[1]
+            b[1, 0::2] = b[0, 1::2] = 0.0
+            d = b @ uvp[dofs[i, :16]]
+            mu = glen_viscosity(b_glen=b_glen, d=d)
+            t11 = 2.0 * mu * d[0]
+            t22 = 2.0 * mu * d[1]
+            t12 = mu * d[2]
+            p = n4 @ uvp[dofs[i, 16:]]
+            s11 = t11 - p
+            s22 = t22 - p
+            sigma[cell, 0] += n8 * s11 * w_det
+            sigma[cell, 1] += n8 * s22 * w_det
+            sigma[cell, 2] += n8 * t12 * w_det
+            weights[cell] += n8 * w_det
+    return sigma / weights[:, None]
 
 
 def glen_coefficient(temperature: float = 263.15) -> float:

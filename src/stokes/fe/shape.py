@@ -3,6 +3,32 @@
 import numpy as np
 from numpy.typing import NDArray
 
+SQRT_06 = float(np.sqrt(0.6))
+
+Q9_GAUSS_POINTS = (
+    (-SQRT_06, -SQRT_06),
+    (0.0, -SQRT_06),
+    (SQRT_06, -SQRT_06),
+    (-SQRT_06, 0.0),
+    (0.0, 0.0),
+    (SQRT_06, 0.0),
+    (-SQRT_06, SQRT_06),
+    (0.0, SQRT_06),
+    (SQRT_06, SQRT_06),
+)
+
+Q9_GAUSS_WEIGHTS = (
+    25.0 / 81.0,
+    40.0 / 81.0,
+    25.0 / 81.0,
+    40.0 / 81.0,
+    64.0 / 81.0,
+    40.0 / 81.0,
+    25.0 / 81.0,
+    40.0 / 81.0,
+    25.0 / 81.0,
+)
+
 
 def q4_shape_functions(xi: float, eta: float) -> NDArray[np.float64]:
     """Shape functions for a 4-node Lagrange (Q4) element."""

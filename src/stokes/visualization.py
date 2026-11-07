@@ -69,14 +69,12 @@ class ParaViewWriter:
 
         # create PyVista UnstructuredGrid
         grid = pv.UnstructuredGrid(cells_with_count.ravel(), cell_types, points_3d)
+        sigma = cauchy_stress(config=config, uvp=uvp)
         grid.point_data["Velocity"] = velocity_3d
         grid.point_data["Pressure"] = pressure
-
-        # compute stresses
-        sigma = cauchy_stress(config=config, uvp=uvp)
-        grid.cell_data["SigmaXX"] = sigma[:, 0]
-        grid.cell_data["SigmaYY"] = sigma[:, 1]
-        grid.cell_data["SigmaXY"] = sigma[:, 2]
+        grid.point_data["SigmaXX"] = sigma[:, 0]
+        grid.point_data["SigmaYY"] = sigma[:, 1]
+        grid.point_data["SigmaXY"] = sigma[:, 2]
 
         # save the VTU file
         vtu_filename = f"{self.base_name}_{len(self.timesteps):05d}.vtu"

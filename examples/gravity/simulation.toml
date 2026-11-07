@@ -1,7 +1,7 @@
 # input file for Stokes flow
 
 [mesh]
-shape = [100, 25]
+shape = [80, 20]
 size = [500.0, 125.0]
 
 [rheology]
