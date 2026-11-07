@@ -1,0 +1,22 @@
+# input file for Stokes flow
+
+[mesh]
+shape = [100, 25]
+size = [500.0, 125.0]
+
+[rheology]
+apply_gravity = true
+ice_density = 917.0  # kg/m^3
+ice_temperature = 263.15  # K
+
+[boundary_conditions]
+left = "free slip"
+bottom = "free slip"
+
+[solver]
+convergence_tolerance = 1.0e-6
+max_iterations = 50
+num_steps = 100
+time_step = 6.0  # hours
+output_interval = 4
+strict_convergence = false # abort if the problem does not converge

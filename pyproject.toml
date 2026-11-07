@@ -1,0 +1,27 @@
+[project]
+name = "stokes"
+version = "0.1.0"
+description = "Stokes flow solver for glacier dynamics."
+readme = "README.md"
+authors = [
+    { name = "Stephen", email = "stephenkjimenez@gmail.com" }
+]
+requires-python = ">=3.15"
+dependencies = [
+    "numpy",
+    "pytest",
+    "pyvista",
+    "setuptools>=61.0",
+    "scipy",
+]
+
+[project.scripts]
+stokes = "stokes.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = []
