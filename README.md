@@ -5,7 +5,7 @@
 Run this:
 
 ```bash
-uv pip install -e . --no-build-isolation
+uv sync
 ```
 
 ## Executing the Code
