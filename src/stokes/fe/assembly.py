@@ -6,7 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.sparse import csc_matrix
 
-from stokes._c_assembly import assemble_stokes
+from stokes._core import assemble_stokes
 from stokes.fe.mesh import Mesh
 
 

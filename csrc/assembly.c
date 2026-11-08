@@ -38,7 +38,7 @@ int assemble_stokes_cell(const double x[8][2], const double u[16],
   double n4[4], n8[8];
   double dndxi[2][8], dndx[2][8];
   double jac[2][2], ijac[2][2];
-  double b[3][16], div[16], d[3];
+  double b[3][16], div[16];
   double h[16];
   for (int i = 0; i < 16; ++i) {
     fe[i] = 0.0;
@@ -93,25 +93,26 @@ int assemble_stokes_cell(const double x[8][2], const double u[16],
     }
 
     /* Compute strain rate. */
-    for (int i = 0; i < 3; ++i) {
-      double tmp = 0.0;
-      for (int j = 0; j < 16; ++j) tmp += b[i][j] * u[j];
-      d[i] = tmp;
+    double e11 = 0.0;
+    double e22 = 0.0;
+    double g12 = 0.0;
+    for (int i = 0; i < 16; ++i) {
+      e11 += b[0][i] * u[i];
+      e22 += b[1][i] * u[i];
+      g12 += b[2][i] * u[i];
     }
+    double e12 = 0.5 * g12;
 
     /* Compute the viscosity. */
-    const double deq2 = 0.5 * (d[0] * d[0] + d[1] * d[1] + 0.5 * d[2] * d[2]);
+    const double deq2 = 0.5 * (e11 * e11 + e22 * e22) + e12 * e12;
     const double mu = glen_viscosity(b_glen, deq2);
 
     /* Compute Newton tangent scalar gamma. */
     double gamma = 0.0;
     if (newton_alpha > 0.0) {
       gamma = newton_alpha * (2.0 / 3.0) * (mu / (deq2 + MIN_DEQ2));
-      const double d0 = d[0];
-      const double d1 = d[1];
-      const double d2 = 0.5 * d[2];
       for (int i = 0; i < 16; ++i)
-        h[i] = b[0][i] * d0 + b[1][i] * d1 + b[2][i] * d2;
+        h[i] = b[0][i] * e11 + b[1][i] * e22 + b[2][i] * e12;
     } else {
       for (int i = 0; i < 16; ++i) h[i] = 0.0;
     }
