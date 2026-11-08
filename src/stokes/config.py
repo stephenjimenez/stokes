@@ -5,7 +5,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, NotRequired, Self, TypedDict
+from typing import Literal, NotRequired, Self, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
