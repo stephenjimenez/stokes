@@ -69,26 +69,36 @@ class ParaViewWriter:
 
         # create PyVista UnstructuredGrid
         grid = pv.UnstructuredGrid(cells_with_count.ravel(), cell_types, points_3d)
+
+        # save point data
+        grid.point_data["Velocity"] = velocity_3d
+        grid.point_data["Pressure"] = pressure
+
+        # save cell data
         epsilon, tau, sigma = interpolate_stress(
             config=config,
             uvp=uvp,
             xi=0.0,
             eta=0.0,
         )
-        grid.point_data["Velocity"] = velocity_3d
-        grid.point_data["Pressure"] = pressure
         if config.plotting.plot_cauchy_stress:
-            grid.cell_data["CauchyStress_XX"] = sigma[:, 0]
-            grid.cell_data["CauchyStress_YY"] = sigma[:, 1]
-            grid.cell_data["CauchyStress_XY"] = sigma[:, 2]
+            grid.cell_data["CauchyStress"] = sigma
+            vtk_arr = grid.cell_data["CauchyStress"].VTKObject
+            vtk_arr.SetComponentName(0, "XX")
+            vtk_arr.SetComponentName(1, "YY")
+            vtk_arr.SetComponentName(2, "XY")
         if config.plotting.plot_deviatoric_stress:
-            grid.cell_data["DeviatoricStress_XX"] = tau[:, 0]
-            grid.cell_data["DeviatoricStress_YY"] = tau[:, 1]
-            grid.cell_data["DeviatoricStress_XY"] = tau[:, 2]
+            grid.cell_data["DeviatoricStress"] = tau
+            vtk_arr = grid.cell_data["DeviatoricStress"].VTKObject
+            vtk_arr.SetComponentName(0, "XX")
+            vtk_arr.SetComponentName(1, "YY")
+            vtk_arr.SetComponentName(2, "XY")
         if config.plotting.plot_strain_rate:
-            grid.cell_data["StrainRate_XX"] = epsilon[:, 0]
-            grid.cell_data["StrainRate_YY"] = epsilon[:, 1]
-            grid.cell_data["StrainRate_XY"] = epsilon[:, 2]
+            grid.cell_data["StrainRate"] = epsilon
+            vtk_arr = grid.cell_data["StrainRate"].VTKObject
+            vtk_arr.SetComponentName(0, "XX")
+            vtk_arr.SetComponentName(1, "YY")
+            vtk_arr.SetComponentName(2, "XY")
 
         # save the VTU file
         vtu_filename = f"{self.base_name}_{len(self.timesteps):05d}.vtu"
