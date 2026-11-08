@@ -18,5 +18,10 @@ convergence_tolerance = 1.0e-6
 max_iterations = 50
 num_steps = 100
 time_step = 6.0  # hours
-output_interval = 4
 strict_convergence = false # abort if the problem does not converge
+
+[plotting]
+output_interval = 4
+plot_cauchy_stress = true
+plot_deviatoric_stress = true
+plot_strain_rate = false

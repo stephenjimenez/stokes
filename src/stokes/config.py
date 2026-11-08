@@ -27,6 +27,15 @@ class BoundaryConditionFormat(TypedDict):
     bottom: NotRequired[BCType]
 
 
+class PlottingFormat(TypedDict):
+    """Input format for plotting configuration."""
+
+    output_interval: NotRequired[int]
+    plot_cauchy_stress: NotRequired[bool]
+    plot_deviatoric_stress: NotRequired[bool]
+    plot_strain_rate: NotRequired[bool]
+
+
 class RheologyFormat(TypedDict):
     """Input format for rheology configuration."""
 
@@ -41,7 +50,6 @@ class SolverFormat(TypedDict):
     convergence_tolerance: NotRequired[float]
     max_iterations: NotRequired[int]
     num_steps: NotRequired[int]
-    output_interval: NotRequired[int]
     strict_convergence: NotRequired[bool]
     time_step: NotRequired[float]
 
@@ -75,12 +83,34 @@ class RheologyConfig:
 
 
 @dataclass
+class PlottingConfig:
+    """Plotting parameters."""
+
+    output_interval: int = 1
+    plot_cauchy_stress: bool = True
+    plot_deviatoric_stress: bool = True
+    plot_strain_rate: bool = True
+
+    @classmethod
+    def from_dict(cls, d: PlottingFormat) -> Self:
+        """Unpack plotting configuration from a dictionary."""
+        return PlottingConfig(
+            output_interval=d.get("output_interval", cls.output_interval),
+            plot_cauchy_stress=d.get("plot_cauchy_stress", cls.plot_cauchy_stress),
+            plot_deviatoric_stress=d.get(
+                "plot_deviatoric_stress",
+                cls.plot_deviatoric_stress,
+            ),
+            plot_strain_rate=d.get("plot_strain_rate", cls.plot_strain_rate),
+        )
+
+
+@dataclass
 class SolverConfig:
     """Nonlinear solver and time-stepping parameters."""
 
     max_iterations: int = 50
     num_steps: int = 100
-    output_interval: int = 1
     strict_convergence: bool = False
     tolerance: float = 1e-6
     time_step: float = 0.05
@@ -91,7 +121,6 @@ class SolverConfig:
         return cls(
             max_iterations=d.get("max_iterations", cls.max_iterations),
             num_steps=d.get("num_steps", cls.num_steps),
-            output_interval=d.get("output_interval", cls.output_interval),
             strict_convergence=d.get("strict_convergence", cls.strict_convergence),
             tolerance=d.get("convergence_tolerance", cls.tolerance),
             time_step=d.get("time_step", cls.time_step),
@@ -104,6 +133,7 @@ class SimulationConfig:
 
     mesh: Mesh
     bc: BoundaryConditions
+    plotting: PlottingConfig
     rheology: RheologyConfig
     solver: SolverConfig
 
@@ -125,7 +155,14 @@ class SimulationConfig:
             edges=[k.lower() for k, v in bc_cfg.items() if v.lower() == "free slip"],
         )
 
-        rheology = RheologyConfig.from_dict(raw.get("rheology"))
+        plotting = PlottingConfig.from_dict(raw.get("plotting", {}))
+        rheology = RheologyConfig.from_dict(raw.get("rheology", {}))
         solver = SolverConfig.from_dict(raw.get("solver", {}))
 
-        return cls(mesh=mesh, rheology=rheology, bc=bc, solver=solver)
+        return cls(
+            mesh=mesh,
+            plotting=plotting,
+            rheology=rheology,
+            bc=bc,
+            solver=solver,
+        )
