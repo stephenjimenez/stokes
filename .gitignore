@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+*.so
 .pytest_cache/
 
 # Virtual environments
@@ -27,3 +28,6 @@ Thumbs.db
 
 # Generated files
 *.log
+
+# Simulation outputs
+output/
