@@ -16,12 +16,12 @@ static const double Q9_GAUSS_WEIGHTS[9] = {
 
 int assemble_stokes(const int (*cells)[8], const int (*dofs)[20],
                     const double (*x)[2], const double* u, const double bf[2],
-                    const double glen_b, const double newton_alpha,
+                    const double b_glen, const double newton_alpha,
                     double (*ae)[16][16], double (*be)[4][16], double (*fe)[16],
                     int n_cells);
 
 int assemble_stokes_cell(const double x[8][2], const double u[16],
-                         const double bf[2], const double glen_b,
+                         const double bf[2], const double b_glen,
                          const double newton_alpha, double ae[16][16],
                          double be[4][16], double fe[16]);
 
