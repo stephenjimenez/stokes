@@ -198,12 +198,10 @@ def initialize_mesh(d: MeshFormat) -> Mesh:
 
     # apply mesh refinements
     refinements = d.get("refinement", [])
-    if any(refinements):
-        patch = set()
-        for ref in refinements:
-            lower = tuple(ref["lower_corner"])
-            upper = tuple(ref["upper_corner"])
-            patch |= quad_mesh.elements_in_box(lower=lower, upper=upper)
+    for ref in refinements:
+        lower = tuple(ref["lower_corner"])
+        upper = tuple(ref["upper_corner"])
+        patch = quad_mesh.elements_in_box(lower=lower, upper=upper)
         quad_mesh.refine_patch(patch)
     q4_cells, vertices = quad_mesh.to_solver_arrays()
     return Mesh.from_q4_mesh(q4_cells=q4_cells, vertices=vertices)
