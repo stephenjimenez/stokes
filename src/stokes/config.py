@@ -28,12 +28,20 @@ class BoundaryConditionFormat(TypedDict):
     bottom: NotRequired[BCType]
 
 
+class MeshBoxFormat(TypedDict):
+    """Input format for mesh refinements and notched."""
+
+    lower_corner: list[float]
+    upper_corner: list[float]
+
+
 class MeshFormat(TypedDict):
     """Input format for the finite element mesh."""
 
     shape: list[int]
     size: list[float]
-    refinement: NotRequired[list[RefinementFormat]]
+    refinement: NotRequired[list[MeshBoxFormat]]
+    notch: NotRequired[list[MeshBoxFormat]]
 
 
 class PlottingFormat(TypedDict):
@@ -43,13 +51,6 @@ class PlottingFormat(TypedDict):
     plot_cauchy_stress: NotRequired[bool]
     plot_deviatoric_stress: NotRequired[bool]
     plot_strain_rate: NotRequired[bool]
-
-
-class RefinementFormat(TypedDict):
-    """Input format for mesh refinements."""
-
-    lower_corner: list[float]
-    upper_corner: list[float]
 
 
 class RheologyFormat(TypedDict):
@@ -182,17 +183,27 @@ class SimulationConfig:
 
 def initialize_mesh(d: MeshFormat) -> Mesh:
     """Initialize the finite element mesh."""
+    # create the base mesh
     quad_mesh = ConformingQuadMesh.from_grid(
         shape=tuple(d["shape"]),
         size=tuple(d["size"]),
     )
+
+    # remove notches
+    for notch in d.get("notch", []):
+        lower = tuple(notch["lower_corner"])
+        upper = tuple(notch["upper_corner"])
+        patch = quad_mesh.elements_in_box(lower=lower, upper=upper)
+        quad_mesh.remove_elements(patch)
+
+    # apply mesh refinements
     refinements = d.get("refinement", [])
     if any(refinements):
         patch = set()
         for ref in refinements:
             lower = tuple(ref["lower_corner"])
             upper = tuple(ref["upper_corner"])
-            patch |= quad_mesh.refine_box(lower=lower, upper=upper)
+            patch |= quad_mesh.elements_in_box(lower=lower, upper=upper)
         quad_mesh.refine_patch(patch)
     q4_cells, vertices = quad_mesh.to_solver_arrays()
     return Mesh.from_q4_mesh(q4_cells=q4_cells, vertices=vertices)
