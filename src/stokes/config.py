@@ -12,6 +12,7 @@ from numpy.typing import NDArray
 
 from stokes.fe.bc import BoundaryConditions
 from stokes.fe.mesh import Mesh
+from stokes.meshing import ConformingQuadMesh
 
 GRAVITY_ACCELERATION = -9.80665
 
@@ -27,6 +28,14 @@ class BoundaryConditionFormat(TypedDict):
     bottom: NotRequired[BCType]
 
 
+class MeshFormat(TypedDict):
+    """Input format for the finite element mesh."""
+
+    shape: list[int]
+    size: list[float]
+    refinement: NotRequired[list[RefinementFormat]]
+
+
 class PlottingFormat(TypedDict):
     """Input format for plotting configuration."""
 
@@ -34,6 +43,13 @@ class PlottingFormat(TypedDict):
     plot_cauchy_stress: NotRequired[bool]
     plot_deviatoric_stress: NotRequired[bool]
     plot_strain_rate: NotRequired[bool]
+
+
+class RefinementFormat(TypedDict):
+    """Input format for mesh refinements."""
+
+    lower_corner: list[float]
+    upper_corner: list[float]
 
 
 class RheologyFormat(TypedDict):
@@ -143,11 +159,7 @@ class SimulationConfig:
         with Path(path).open(mode="rb") as f:
             raw = tomllib.load(f)
 
-        mesh_cfg: dict[str, Any] = raw.get("mesh", {})
-        mesh = Mesh.from_grid(  # [cite: 1]
-            shape=tuple(mesh_cfg.get("shape", (5, 5))),  # [cite: 1]
-            size=tuple(mesh_cfg.get("size", (1.0, 1.0))),  # [cite: 1]
-        )
+        mesh = initialize_mesh(raw.get("mesh"))
 
         bc_cfg: dict[str, str] = raw.get("boundary_conditions", {})
         bc = BoundaryConditions.free_slip_bc(
@@ -166,3 +178,21 @@ class SimulationConfig:
             bc=bc,
             solver=solver,
         )
+
+
+def initialize_mesh(d: MeshFormat) -> Mesh:
+    """Initialize the finite element mesh."""
+    quad_mesh = ConformingQuadMesh.from_grid(
+        shape=tuple(d["shape"]),
+        size=tuple(d["size"]),
+    )
+    refinements = d.get("refinement", [])
+    if any(refinements):
+        patch = set()
+        for ref in refinements:
+            lower = tuple(ref["lower_corner"])
+            upper = tuple(ref["upper_corner"])
+            patch |= quad_mesh.refine_box(lower=lower, upper=upper)
+        quad_mesh.refine_patch(patch)
+    q4_cells, vertices = quad_mesh.to_solver_arrays()
+    return Mesh.from_q4_mesh(q4_cells=q4_cells, vertices=vertices)
