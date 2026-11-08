@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Self
 
@@ -48,6 +49,22 @@ class ConformingQuadMesh:
         self._next_pid += 1
         return pid
 
+    def elements_in_box(self, lower: Point, upper: Point) -> set[int]:
+        """Identify quads that fit within a box."""
+        ax, ay = lower
+        bx, by = upper
+        patch = set()
+        for i, (n0, n1, n2, n3) in enumerate(self.quads):
+            x0, y0 = self.points[n0]
+            x1, y1 = self.points[n1]
+            x2, y2 = self.points[n2]
+            x3, y3 = self.points[n3]
+            x = 0.25 * (x0 + x1 + x2 + x3)
+            y = 0.25 * (y0 + y1 + y2 + y3)
+            if ax <= x <= bx and ay <= y <= by:
+                patch.add(i)
+        return patch
+
     @classmethod
     def from_grid(
         cls,
@@ -79,25 +96,16 @@ class ConformingQuadMesh:
         p2 = self.add_point((pa[0] + 2.0 * pb[0]) / 3.0, (pa[1] + 2.0 * pb[1]) / 3.0)
         return p1, p2
 
-    def refine_box(self, lower: Point, upper: Point) -> set[int]:
-        """Refine quads that fit within a box."""
-        ax, ay = lower
-        bx, by = upper
-        patch = set()
-        for i, (n0, n1, n2, n3) in enumerate(self.quads):
-            x0, y0 = self.points[n0]
-            x1, y1 = self.points[n1]
-            x2, y2 = self.points[n2]
-            x3, y3 = self.points[n3]
-            x = 0.25 * (x0 + x1 + x2 + x3)
-            y = 0.25 * (y0 + y1 + y2 + y3)
-            if ax <= x <= bx and ay <= y <= by:
-                patch.add(i)
-        return patch
+    def remove_elements(self, patch: Sequence[int]) -> None:
+        """Remove tagged cells."""
+        to_remove = set(patch)
+        self.quads = [quad for i, quad in enumerate(self.quads) if i not in to_remove]
+        to_keep = set(i for quad in self.quads for i in quad)
+        self.points = {k: v for k, v in self.points.items() if k in to_keep}
 
-    def refine_patch(self, refine_cell_indices: set[int]) -> None:
+    def refine_patch(self, patch: Sequence[int]) -> None:
         """Refine tagged cells and transition neighbors with zero hanging nodes."""
-        to_refine = set(refine_cell_indices)
+        to_refine = set(patch)
 
         # 1. Close refinement set for cells with >= 3 split
         # edges or opposite split edges

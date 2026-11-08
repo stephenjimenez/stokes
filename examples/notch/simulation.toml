@@ -1,0 +1,39 @@
+# input file for Stokes flow
+
+[mesh]
+shape = [51, 10]
+size = [510.0, 100.0]
+
+[[mesh.refinement]]
+lower_corner = [410.0, 0.0]
+upper_corner = [510.0, 100.0]
+
+[[mesh.refinement]]
+lower_corner = [240.0, 0.0]
+upper_corner = [270.0, 100.0]
+
+[[mesh.notch]]
+lower_corner = [250.0, 90.0]
+upper_corner = [260.0, 100.0]
+
+[rheology]
+apply_gravity = true
+ice_density = 917.0  # kg/m^3
+ice_temperature = 263.15  # K
+
+[boundary_conditions]
+left = "free slip"
+bottom = "free slip"
+
+[solver]
+convergence_tolerance = 1.0e-6
+max_iterations = 50
+num_steps = 100
+time_step = 6.0  # hours
+strict_convergence = false # abort if the problem does not converge
+
+[plotting]
+output_interval = 4
+plot_cauchy_stress = true
+plot_deviatoric_stress = true
+plot_strain_rate = false
