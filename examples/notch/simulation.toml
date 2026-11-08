@@ -5,12 +5,12 @@ shape = [51, 10]
 size = [510.0, 100.0]
 
 [[mesh.refinement]]
-lower_corner = [410.0, 0.0]
-upper_corner = [510.0, 100.0]
+lower_corner = [230.0, 0.0]
+upper_corner = [280.0, 100.0]
 
 [[mesh.refinement]]
-lower_corner = [240.0, 0.0]
-upper_corner = [270.0, 100.0]
+lower_corner = [246.666666, 0.0]
+upper_corner = [263.333333, 100.0]
 
 [[mesh.notch]]
 lower_corner = [250.0, 90.0]
