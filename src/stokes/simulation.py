@@ -56,7 +56,7 @@ def execute(config: SimulationConfig) -> None:
             raise RuntimeError(msg)
 
         # generate plots
-        if step % config.solver.output_interval == 0:
+        if step % config.plotting.output_interval == 0:
             writer.write_step(config=config, time=t, uvp=uvp)
 
         # update the mesh coordinates

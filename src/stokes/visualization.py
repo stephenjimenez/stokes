@@ -10,7 +10,7 @@ import numpy as np
 import pyvista as pv
 from numpy.typing import NDArray
 
-from stokes.rheology import cauchy_stress
+from stokes.rheology import l2_projection
 
 if TYPE_CHECKING:
     from stokes.config import SimulationConfig
@@ -69,12 +69,20 @@ class ParaViewWriter:
 
         # create PyVista UnstructuredGrid
         grid = pv.UnstructuredGrid(cells_with_count.ravel(), cell_types, points_3d)
-        sigma = cauchy_stress(config=config, uvp=uvp)
+        epsilon, sigma, tau = l2_projection(config=config, uvp=uvp)
         grid.point_data["Velocity"] = velocity_3d
         grid.point_data["Pressure"] = pressure
-        grid.point_data["SigmaXX"] = sigma[:, 0]
-        grid.point_data["SigmaYY"] = sigma[:, 1]
-        grid.point_data["SigmaXY"] = sigma[:, 2]
+        if config.plotting.plot_cauchy_stress:
+            grid.point_data["CauchyStress_XX"] = sigma[:, 0]
+            grid.point_data["CauchyStress_YY"] = sigma[:, 1]
+            grid.point_data["CauchyStress_XY"] = sigma[:, 2]
+        if config.plotting.plot_deviatoric_stress:
+                grid.point_data["DeviatoricStress_XX"] = tau[:, 0]
+                grid.point_data["DeviatoricStress_YY"] = tau[:, 1]
+        if config.plotting.plot_strain_rate:
+            grid.point_data["StrainRate_XX"] = epsilon[:, 0]
+            grid.point_data["StrainRate_YY"] = epsilon[:, 1]
+            grid.point_data["StrainRate_XY"] = epsilon[:, 2]
 
         # save the VTU file
         vtu_filename = f"{self.base_name}_{len(self.timesteps):05d}.vtu"
