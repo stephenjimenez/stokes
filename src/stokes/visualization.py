@@ -10,12 +10,14 @@ import numpy as np
 import pyvista as pv
 from numpy.typing import NDArray
 
-from stokes.rheology import interpolate_stress
+from stokes.rheology import hayhurst_stress, interpolate_stress
 
 if TYPE_CHECKING:
     from stokes.config import SimulationConfig
 
 VTK_QUADRATIC_QUAD = 23
+
+YEAR_TO_SECOND = 31536000.0
 
 
 class ParaViewWriter:
@@ -39,6 +41,7 @@ class ParaViewWriter:
         config: SimulationConfig,
         time: float,
         uvp: NDArray[np.float64],
+        dmg: NDArray[np.float64],
     ) -> Path:
         """Write a single time step to a .vtu file and update the master .pvd file."""
 
@@ -49,8 +52,8 @@ class ParaViewWriter:
         # extract velocity field
         n = 2 * config.mesh.num_points
         velocity_3d = np.zeros((config.mesh.num_points, 3), dtype=np.float64)
-        velocity_3d[:, 0] = uvp[0:n:2]
-        velocity_3d[:, 1] = uvp[1:n:2]
+        velocity_3d[:, 0] = uvp[0:n:2] / YEAR_TO_SECOND
+        velocity_3d[:, 1] = uvp[1:n:2] / YEAR_TO_SECOND
 
         # extract pressure (and compute at midpoints)
         pressure = np.zeros(config.mesh.num_points, dtype=np.float64)
@@ -75,12 +78,9 @@ class ParaViewWriter:
         grid.point_data["Pressure"] = pressure
 
         # save cell data
-        epsilon, tau, sigma = interpolate_stress(
-            config=config,
-            uvp=uvp,
-            xi=0.0,
-            eta=0.0,
-        )
+        d, tau, sigma = interpolate_stress(config=config, uvp=uvp, dmg=dmg)
+        if config.damage is not None:
+            grid.cell_data["Damage"] = dmg
         if config.plotting.plot_cauchy_stress:
             grid.cell_data["CauchyStress"] = sigma
             vtk_arr = grid.cell_data["CauchyStress"].VTKObject
@@ -93,8 +93,11 @@ class ParaViewWriter:
             vtk_arr.SetComponentName(0, "XX")
             vtk_arr.SetComponentName(1, "YY")
             vtk_arr.SetComponentName(2, "XY")
+        if config.plotting.plot_hayhurst_stress:
+            chi = hayhurst_stress(config=config, sigma=sigma, tau=tau)
+            grid.cell_data["HayhurstStress"] = chi
         if config.plotting.plot_strain_rate:
-            grid.cell_data["StrainRate"] = epsilon
+            grid.cell_data["StrainRate"] = d
             vtk_arr = grid.cell_data["StrainRate"].VTKObject
             vtk_arr.SetComponentName(0, "XX")
             vtk_arr.SetComponentName(1, "YY")

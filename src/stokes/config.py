@@ -19,13 +19,28 @@ GRAVITY_ACCELERATION = -9.80665
 BCType = Literal["free slip"]
 
 
-class BoundaryConditionFormat(TypedDict):
+class BoundarysConditionFormat(TypedDict):
     """Input format for boundary conditions."""
 
     left: NotRequired[BCType]
     right: NotRequired[BCType]
     top: NotRequired[BCType]
     bottom: NotRequired[BCType]
+
+
+class DamageFormat(TypedDict):
+    """Input format for damage parameters."""
+
+    b_hat: NotRequired[float]
+    r: NotRequired[float]
+    k1: NotRequired[float]
+    k2: NotRequired[float]
+    alpha: NotRequired[float]
+    beta: NotRequired[float]
+    length_scale: NotRequired[float]
+    kappa: NotRequired[float]
+    max_damage: NotRequired[float]
+    critical_damage: NotRequired[float]
 
 
 class MeshBoxFormat(TypedDict):
@@ -50,6 +65,7 @@ class PlottingFormat(TypedDict):
     output_interval: NotRequired[int]
     plot_cauchy_stress: NotRequired[bool]
     plot_deviatoric_stress: NotRequired[bool]
+    plot_hayhurst_stress: NotRequired[bool]
     plot_strain_rate: NotRequired[bool]
 
 
@@ -72,14 +88,73 @@ class SolverFormat(TypedDict):
 
 
 @dataclass
+class DamageConfig:
+    """Container for damage parameters."""
+
+    b_hat: float = 5.23e-7  # MPa^-r s^-1
+    r: float = 0.43
+    k1: float = -2.63
+    k2: float = 7.24  # MPa^-1
+    alpha: float = 0.21
+    beta: float = 0.63
+    length_scale: float = 10.0  # m
+    kappa: float = 2.0
+    max_damage: float = 0.99
+    critical_damage: float = 0.63
+
+    @classmethod
+    def from_dict(cls, d: DamageFormat) -> Self:
+        """Unpack damage configuration from a dictionary."""
+        return cls(
+            b_hat=d.get("b_hat", cls.b_hat),
+            r=d.get("r", cls.r),
+            k1=d.get("k1", cls.k1),
+            k2=d.get("k2", cls.k2),
+            alpha=d.get("alpha", cls.alpha),
+            beta=d.get("beta", cls.beta),
+            length_scale=d.get("length_scale", cls.length_scale),
+            kappa=d.get("kappa", cls.kappa),
+            max_damage=d.get("max_damage", cls.max_damage),
+            critical_damage=d.get("critical_damage", cls.critical_damage),
+        )
+
+
+@dataclass
+class PlottingConfig:
+    """Plotting parameters."""
+
+    output_interval: int = 1
+    plot_cauchy_stress: bool = True
+    plot_deviatoric_stress: bool = True
+    plot_hayhurst_stress: bool = True
+    plot_strain_rate: bool = True
+
+    @classmethod
+    def from_dict(cls, d: PlottingFormat) -> Self:
+        """Unpack plotting configuration from a dictionary."""
+        return PlottingConfig(
+            output_interval=d.get("output_interval", cls.output_interval),
+            plot_cauchy_stress=d.get("plot_cauchy_stress", cls.plot_cauchy_stress),
+            plot_hayhurst_stress=d.get(
+                "plot_hayhurst_stress",
+                cls.plot_hayhurst_stress,
+            ),
+            plot_deviatoric_stress=d.get(
+                "plot_deviatoric_stress",
+                cls.plot_deviatoric_stress,
+            ),
+            plot_strain_rate=d.get("plot_strain_rate", cls.plot_strain_rate),
+        )
+
+
+@dataclass
 class RheologyConfig:
-    """Rheology parameters."""
+    """Conatiner for rheology parameters."""
 
     gravity: bool = False
     rho_ice: float = 917.0
     temperature: float = 263.15
 
-    @property
     def body_force(self) -> NDArray[np.float64]:
         """Evaluate the body force from gravity."""
         if self.gravity:
@@ -96,29 +171,6 @@ class RheologyConfig:
             gravity=d.get("apply_gravity", cls.gravity),
             rho_ice=d.get("ice_density", cls.rho_ice),
             temperature=d.get("ice_temperature", cls.temperature),
-        )
-
-
-@dataclass
-class PlottingConfig:
-    """Plotting parameters."""
-
-    output_interval: int = 1
-    plot_cauchy_stress: bool = True
-    plot_deviatoric_stress: bool = True
-    plot_strain_rate: bool = True
-
-    @classmethod
-    def from_dict(cls, d: PlottingFormat) -> Self:
-        """Unpack plotting configuration from a dictionary."""
-        return PlottingConfig(
-            output_interval=d.get("output_interval", cls.output_interval),
-            plot_cauchy_stress=d.get("plot_cauchy_stress", cls.plot_cauchy_stress),
-            plot_deviatoric_stress=d.get(
-                "plot_deviatoric_stress",
-                cls.plot_deviatoric_stress,
-            ),
-            plot_strain_rate=d.get("plot_strain_rate", cls.plot_strain_rate),
         )
 
 
@@ -148,8 +200,9 @@ class SolverConfig:
 class SimulationConfig:
     """Complete simulation setup parsed from a TOML file."""
 
-    mesh: Mesh
     bc: BoundaryConditions
+    damage: DamageConfig | None
+    mesh: Mesh
     plotting: PlottingConfig
     rheology: RheologyConfig
     solver: SolverConfig
@@ -160,24 +213,30 @@ class SimulationConfig:
         with Path(path).open(mode="rb") as f:
             raw = tomllib.load(f)
 
-        mesh = initialize_mesh(raw.get("mesh"))
+        # unpack sub dictionaries
+        bc_raw: BoundarysConditionFormat = raw.get("boundary_conditions", {})
+        damage_raw: DamageFormat = raw.get("damage")
+        mesh_raw: MeshFormat = raw.get("mesh")
+        plotting_raw: PlottingFormat = raw.get("plotting", {})
+        rheology_raw: RheologyFormat = raw.get("rheology", {})
+        solver_raw: SolverFormat = raw.get("solver", {})
 
-        bc_cfg: dict[str, str] = raw.get("boundary_conditions", {})
+        # initialize the mesh
+        mesh = initialize_mesh(mesh_raw)
+
+        # boundary conditions
         bc = BoundaryConditions.free_slip_bc(
             mesh=mesh,
-            edges=[k.lower() for k, v in bc_cfg.items() if v.lower() == "free slip"],
+            edges=[k.lower() for k, v in bc_raw.items() if v.lower() == "free slip"],
         )
 
-        plotting = PlottingConfig.from_dict(raw.get("plotting", {}))
-        rheology = RheologyConfig.from_dict(raw.get("rheology", {}))
-        solver = SolverConfig.from_dict(raw.get("solver", {}))
-
         return cls(
-            mesh=mesh,
-            plotting=plotting,
-            rheology=rheology,
             bc=bc,
-            solver=solver,
+            damage=None if damage_raw is None else DamageConfig.from_dict(damage_raw),
+            mesh=mesh,
+            plotting=PlottingConfig.from_dict(plotting_raw),
+            rheology=RheologyConfig.from_dict(rheology_raw),
+            solver=SolverConfig.from_dict(solver_raw),
         )
 
 
