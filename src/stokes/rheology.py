@@ -85,14 +85,15 @@ def interpolate_stress(
     d = np.empty((config.mesh.num_cells, 3), dtype=np.float64)
     eval_strainrate(cells, dofs, x, u, 0.0, 0.0, d)
 
-    # interpolate true deviatoric stress
+    # interpolate true deviatoric stress and pressure
     tau = (1.0 - dmg)[:, None] * deviatoric_stress(config=config, d=d)
-    i = dmg >= config.damage.critical_damage
-    tau[i] = 0.0
-
-    # interpolate pressure at element centroids
     p = uvp[dofs[:, 16:]].mean(axis=1)
-    p[i] = 0.0
+
+    # zero out the stress in failed elements
+    if config.damage is not None:
+        i = dmg >= config.damage.critical_damage
+        tau[i] = 0.0
+        p[i] = 0.0
 
     # compute true Cauchy stress
     sigma = np.empty_like(tau)

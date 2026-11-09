@@ -45,6 +45,8 @@ class ParaViewWriter:
     ) -> Path:
         """Write a single time step to a .vtu file and update the master .pvd file."""
 
+        print("\nPlotting")
+
         # extract 3D points
         points_3d = np.zeros((config.mesh.num_points, 3), dtype=np.float64)
         points_3d[:, :2] = config.mesh.points
@@ -94,8 +96,14 @@ class ParaViewWriter:
             vtk_arr.SetComponentName(1, "YY")
             vtk_arr.SetComponentName(2, "XY")
         if config.plotting.plot_hayhurst_stress:
-            chi = hayhurst_stress(config=config, sigma=sigma, tau=tau)
-            grid.cell_data["HayhurstStress"] = chi
+            if config.damage is None:
+                print(
+                    "- No Hayhurst stress paramters were provided; "
+                    "cannot plot this variable."
+                )
+            else:
+                chi = hayhurst_stress(config=config, sigma=sigma, tau=tau)
+                grid.cell_data["HayhurstStress"] = chi
         if config.plotting.plot_strain_rate:
             grid.cell_data["StrainRate"] = d
             vtk_arr = grid.cell_data["StrainRate"].VTKObject
@@ -107,6 +115,7 @@ class ParaViewWriter:
         vtu_filename = f"{self.base_name}_{len(self.timesteps):05d}.vtu"
         vtu_path = self.output_dir / vtu_filename
         grid.save(str(vtu_path))
+        print(f"- Saved: {vtu_path.relative_to(Path.cwd())}")
 
         # record and write master PVD file
         self.timesteps.append((time, vtu_filename))

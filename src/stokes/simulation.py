@@ -1,6 +1,7 @@
 """Tools for executing the Stokes flow simulation."""
 
 from enum import Enum, auto
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from time import perf_counter
 
@@ -27,6 +28,12 @@ class SolverStatus(Enum):
 
 def execute(config: SimulationConfig) -> None:
     """Execute a Stokes flow simulation."""
+    print("# Stokes flow")
+    try:
+        v = version("stokes")
+        print(f"\nVersion {v:s}")
+    except PackageNotFoundError:
+        pass
 
     # setup
     t = 0.0
@@ -43,7 +50,6 @@ def execute(config: SimulationConfig) -> None:
     uvp0 = np.zeros(sum(config.mesh.num_dofs), dtype=np.float64)
 
     # begin time stepping
-    print("# Stokes flow")
     for step in range(config.solver.num_steps + 1):
         print(f"\n## Step {step:d} (t={t:g} hours)", flush=True)
 
@@ -164,7 +170,10 @@ def solve_stokes(
             flush=True,
         )
 
-    print(f"\nt_assembly: {t_assembly:g} s\nt_solve:    {t_solve:g} s")
+    print(
+        f"\nTiming\n- t_assembly: {t_assembly:g} seconds"
+        "\n- t_solve:    {t_solve:g} seconds"
+    )
     if k < config.solver.max_iterations:
         return uvp, SolverStatus.CONVERGED
     return uvp, SolverStatus.MAX_ITERATIONS
