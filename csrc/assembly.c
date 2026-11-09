@@ -7,10 +7,10 @@
 
 /* Assemble the Stokes system of equations. */
 int assemble_stokes(const int (*cells)[8], const int (*dofs)[20],
-                    const double (*x)[2], const double* u, const double bf[2],
-                    const double b_glen, const double newton_alpha,
-                    double (*ae)[16][16], double (*be)[4][16], double (*fe)[16],
-                    int n_cells) {
+                    const double (*x)[2], const double* u, const double* dmg,
+                    const double bf[2], const double b_glen,
+                    const double newton_alpha, double (*ae)[16][16],
+                    double (*be)[4][16], double (*fe)[16], int n_cells) {
   int global_err = 0;
   for (int i = 0; i < n_cells; ++i) {
     double ue[16], xe[8][2];
@@ -21,8 +21,8 @@ int assemble_stokes(const int (*cells)[8], const int (*dofs)[20],
       xe[j][0] = x[cells[i][j]][0];
       xe[j][1] = x[cells[i][j]][1];
     }
-    int local_err = assemble_stokes_cell(xe, ue, bf, b_glen, newton_alpha,
-                                         ae[i], be[i], fe[i]);
+    int local_err = assemble_stokes_cell(xe, ue, dmg[i], bf, b_glen,
+                                         newton_alpha, ae[i], be[i], fe[i]);
     if (local_err != 0) {
       global_err = local_err;
     }
@@ -32,9 +32,9 @@ int assemble_stokes(const int (*cells)[8], const int (*dofs)[20],
 
 /* Assemble matrices for a single element. */
 int assemble_stokes_cell(const double x[8][2], const double u[16],
-                         const double bf[2], const double b_glen,
-                         const double newton_alpha, double ae[16][16],
-                         double be[4][16], double fe[16]) {
+                         const double dmg, const double bf[2],
+                         const double b_glen, const double newton_alpha,
+                         double ae[16][16], double be[4][16], double fe[16]) {
   double n4[4], n8[8];
   double dndxi[2][8], dndx[2][8];
   double jac[2][2], ijac[2][2];
@@ -92,27 +92,27 @@ int assemble_stokes_cell(const double x[8][2], const double u[16],
       div[i2] = dndx[1][i];
     }
 
-    /* Compute strain rate. */
-    double e11 = 0.0;
-    double e22 = 0.0;
+    /* Compute strain rate components. */
+    double d11 = 0.0;
+    double d22 = 0.0;
     double g12 = 0.0;
     for (int i = 0; i < 16; ++i) {
-      e11 += b[0][i] * u[i];
-      e22 += b[1][i] * u[i];
+      d11 += b[0][i] * u[i];
+      d22 += b[1][i] * u[i];
       g12 += b[2][i] * u[i];
     }
-    double e12 = 0.5 * g12;
+    double d12 = 0.5 * g12;
 
     /* Compute the viscosity. */
-    const double deq2 = 0.5 * (e11 * e11 + e22 * e22) + e12 * e12;
-    const double mu = glen_viscosity(b_glen, deq2);
+    const double deq2 = 0.5 * (d11 * d11 + d22 * d22) + d12 * d12;
+    const double mu = (1.0 - dmg) * glen_viscosity(b_glen, deq2);
 
     /* Compute Newton tangent scalar gamma. */
     double gamma = 0.0;
     if (newton_alpha > 0.0) {
       gamma = newton_alpha * (2.0 / 3.0) * (mu / (deq2 + MIN_DEQ2));
       for (int i = 0; i < 16; ++i)
-        h[i] = b[0][i] * e11 + b[1][i] * e22 + b[2][i] * e12;
+        h[i] = b[0][i] * d11 + b[1][i] * d22 + b[2][i] * d12;
     } else {
       for (int i = 0; i < 16; ++i) h[i] = 0.0;
     }

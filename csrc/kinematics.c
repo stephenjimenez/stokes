@@ -7,7 +7,7 @@
 /* Evaluate strain rates a Gauss point. */
 int eval_strainrate(const int (*cells)[8], const int (*dofs)[20],
                     const double (*x)[2], const double* u, const double xi,
-                    const double eta, double (*epsilon_dot)[3], int n_cells) {
+                    const double eta, double (*d)[3], int n_cells) {
   double n[8];
   double dndxi[2][8], dndx[2][8];
   double b[3][16];
@@ -64,17 +64,17 @@ int eval_strainrate(const int (*cells)[8], const int (*dofs)[20],
     }
 
     /* Compute strain rate. */
-    double e11 = 0.0;
-    double e22 = 0.0;
+    double d11 = 0.0;
+    double d22 = 0.0;
     double g12 = 0.0;
     for (int i = 0; i < 16; ++i) {
-      e11 += b[0][i] * ue[i];
-      e22 += b[1][i] * ue[i];
+      d11 += b[0][i] * ue[i];
+      d22 += b[1][i] * ue[i];
       g12 += b[2][i] * ue[i];
     }
-    epsilon_dot[c][0] = e11;
-    epsilon_dot[c][1] = e22;
-    epsilon_dot[c][2] = g12;
+    d[c][0] = d11;
+    d[c][1] = d22;
+    d[c][2] = g12;
   }
 
   return 0;

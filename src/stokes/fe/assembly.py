@@ -93,7 +93,8 @@ class StokesAssembler:
     def assemble_system(
         self,
         b_glen: float,
-        u_global: NDArray[np.float64],
+        uvp: NDArray[np.float64],
+        damage: NDArray[np.float64],
         body_force: tuple[float, float] = (0.0, 0.0),
         alpha: float = 0.0,
     ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
@@ -103,7 +104,8 @@ class StokesAssembler:
         cells = np.ascontiguousarray(self.mesh.cells, dtype=np.int32)
         dofs = np.ascontiguousarray(self.mesh.cell_dofs(), dtype=np.int32)
         x = np.ascontiguousarray(self.mesh.points, dtype=np.float64)
-        u = np.ascontiguousarray(u_global, dtype=np.float64)
+        u = np.ascontiguousarray(uvp, dtype=np.float64)
+        dmg = np.ascontiguousarray(damage, dtype=np.float64)
         bf = np.ascontiguousarray(body_force, dtype=np.float64)
 
         # pre-allocate output arrays (matching the shapes unpacked in python_module.c)
@@ -112,6 +114,6 @@ class StokesAssembler:
         fe = np.empty((self.mesh.num_cells, 16), dtype=np.float64)
 
         # call into the C extension (modifies ae, be, fe in-place with zero memory copy)
-        assemble_stokes(cells, dofs, x, u, bf, b_glen, alpha, ae, be, fe)
+        assemble_stokes(cells, dofs, x, u, dmg, bf, b_glen, alpha, ae, be, fe)
 
         return ae, be, fe

@@ -8,15 +8,15 @@
 
 /* Wrapper for assemble_stokes */
 static PyObject* py_assemble_stokes(PyObject* self, PyObject* args) {
-  PyArrayObject *py_cells, *py_dofs, *py_x, *py_u, *py_bf;
+  PyArrayObject *py_cells, *py_dofs, *py_x, *py_u, *py_bf, *py_dmg;
   PyArrayObject *py_ae, *py_be, *py_fe;
   double b_glen, newton_alpha;
 
-  if (!PyArg_ParseTuple(args, "O!O!O!O!O!ddO!O!O!", &PyArray_Type, &py_cells,
-                        &PyArray_Type, &py_dofs, &PyArray_Type, &py_x,
-                        &PyArray_Type, &py_u, &PyArray_Type, &py_bf, &b_glen,
-                        &newton_alpha, &PyArray_Type, &py_ae, &PyArray_Type,
-                        &py_be, &PyArray_Type, &py_fe)) {
+  if (!PyArg_ParseTuple(
+          args, "O!O!O!O!O!O!ddO!O!O!", &PyArray_Type, &py_cells, &PyArray_Type,
+          &py_dofs, &PyArray_Type, &py_x, &PyArray_Type, &py_u, &PyArray_Type,
+          &py_dmg, &PyArray_Type, &py_bf, &b_glen, &newton_alpha, &PyArray_Type,
+          &py_ae, &PyArray_Type, &py_be, &PyArray_Type, &py_fe)) {
     return NULL;
   }
 
@@ -26,6 +26,7 @@ static PyObject* py_assemble_stokes(PyObject* self, PyObject* args) {
   const int (*cells)[8] = (const int (*)[8])PyArray_DATA(py_cells);
   const int (*dofs)[20] = (const int (*)[20])PyArray_DATA(py_dofs);
   const double (*x)[2] = (const double (*)[2])PyArray_DATA(py_x);
+  const double* dmg = (const double*)PyArray_DATA(py_dmg);
   const double* u = (const double*)PyArray_DATA(py_u);
   const double* bf = (const double*)PyArray_DATA(py_bf);
 
@@ -36,7 +37,7 @@ static PyObject* py_assemble_stokes(PyObject* self, PyObject* args) {
   /* Release the Python Global Interpreter Lock (GIL) during C computation */
   int ierr = 0;
   Py_BEGIN_ALLOW_THREADS ierr = assemble_stokes(
-      cells, dofs, x, u, bf, b_glen, newton_alpha, ae, be, fe, n_cells);
+      cells, dofs, x, u, dmg, bf, b_glen, newton_alpha, ae, be, fe, n_cells);
   Py_END_ALLOW_THREADS
 
       if (ierr != 0) {
@@ -51,13 +52,13 @@ static PyObject* py_assemble_stokes(PyObject* self, PyObject* args) {
 
 /* Wrapper for eval_strainrate */
 static PyObject* py_eval_strainrate(PyObject* self, PyObject* args) {
-  PyArrayObject *py_cells, *py_dofs, *py_x, *py_u, *py_d;
+  PyArrayObject *py_cells, *py_dofs, *py_x, *py_u, *py_epsilon;
   double xi, eta;
 
   if (!PyArg_ParseTuple(args, "O!O!O!O!ddO!", &PyArray_Type, &py_cells,
                         &PyArray_Type, &py_dofs, &PyArray_Type, &py_x,
                         &PyArray_Type, &py_u, &xi, &eta, &PyArray_Type,
-                        &py_d)) {
+                        &py_epsilon)) {
     return NULL;
   }
 
@@ -68,12 +69,12 @@ static PyObject* py_eval_strainrate(PyObject* self, PyObject* args) {
   const int (*dofs)[20] = (const int (*)[20])PyArray_DATA(py_dofs);
   const double (*x)[2] = (const double (*)[2])PyArray_DATA(py_x);
   const double* u = (const double*)PyArray_DATA(py_u);
-  double (*d)[3] = (double (*)[3])PyArray_DATA(py_d);
+  double (*epsilon)[3] = (double (*)[3])PyArray_DATA(py_epsilon);
 
   /* Release the GIL during C computation */
   int ierr = 0;
   Py_BEGIN_ALLOW_THREADS ierr =
-      eval_strainrate(cells, dofs, x, u, xi, eta, d, n_cells);
+      eval_strainrate(cells, dofs, x, u, xi, eta, epsilon, n_cells);
   Py_END_ALLOW_THREADS
 
       if (ierr != 0) {
