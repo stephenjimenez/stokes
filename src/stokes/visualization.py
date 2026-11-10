@@ -98,12 +98,11 @@ class ParaViewWriter:
         if config.plotting.plot_hayhurst_stress:
             if config.damage is None:
                 print(
-                    "- No Hayhurst stress paramters were provided; "
+                    "- No Hayhurst stress parameters were provided; "
                     "cannot plot this variable."
                 )
-            else:
-                chi = hayhurst_stress(config=config, sigma=sigma, tau=tau)
-                grid.cell_data["HayhurstStress"] = chi
+            chi = hayhurst_stress(config=config, sigma=sigma, tau=tau)
+            grid.cell_data["HayhurstStress"] = chi
         if config.plotting.plot_strain_rate:
             grid.cell_data["StrainRate"] = d
             vtk_arr = grid.cell_data["StrainRate"].VTKObject

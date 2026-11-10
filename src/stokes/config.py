@@ -19,7 +19,7 @@ GRAVITY_ACCELERATION = -9.80665
 BCType = Literal["free slip"]
 
 
-class BoundarysConditionFormat(TypedDict):
+class BoundaryConditionsFormat(TypedDict):
     """Input format for boundary conditions."""
 
     left: NotRequired[BCType]
@@ -44,7 +44,7 @@ class DamageFormat(TypedDict):
 
 
 class MeshBoxFormat(TypedDict):
-    """Input format for mesh refinements and notched."""
+    """Input format for mesh refinements and notches."""
 
     lower_corner: list[float]
     upper_corner: list[float]
@@ -72,7 +72,7 @@ class PlottingFormat(TypedDict):
 class RheologyFormat(TypedDict):
     """Input format for rheology configuration."""
 
-    apply_gravity: NotRequired[float]
+    apply_gravity: NotRequired[bool]
     ice_density: NotRequired[float]
     ice_temperature: NotRequired[float]
 
@@ -149,7 +149,7 @@ class PlottingConfig:
 
 @dataclass
 class RheologyConfig:
-    """Conatiner for rheology parameters."""
+    """Container for rheology parameters."""
 
     gravity: bool = False
     rho_ice: float = 917.0
@@ -214,7 +214,7 @@ class SimulationConfig:
             raw = tomllib.load(f)
 
         # unpack sub dictionaries
-        bc_raw: BoundarysConditionFormat = raw.get("boundary_conditions", {})
+        bc_raw: BoundaryConditionsFormat = raw.get("boundary_conditions", {})
         damage_raw: DamageFormat = raw.get("damage")
         mesh_raw: MeshFormat = raw.get("mesh")
         plotting_raw: PlottingFormat = raw.get("plotting", {})
@@ -227,7 +227,11 @@ class SimulationConfig:
         # boundary conditions
         bc = BoundaryConditions.free_slip_bc(
             mesh=mesh,
-            edges=[k.lower() for k, v in bc_raw.items() if v.lower() == "free slip"],
+            edges=[
+                k.lower()
+                for k, v in bc_raw.items()
+                if isinstance(v, str) and v.lower() == "free slip"
+            ],
         )
 
         return cls(

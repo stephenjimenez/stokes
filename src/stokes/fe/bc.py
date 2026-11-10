@@ -30,11 +30,11 @@ class BoundaryConditions:
         for edge in edges:
             match edge:
                 case "left":
-                    flag_u |= np.isclose(mesh.points[:, 0], 0.0)
+                    flag_u |= np.isclose(mesh.points[:, 0], mesh.points[:, 0].min())
                 case "right":
                     flag_u |= np.isclose(mesh.points[:, 0], mesh.points[:, 0].max())
                 case "bottom":
-                    flag_v |= np.isclose(mesh.points[:, 1], 0.0)
+                    flag_v |= np.isclose(mesh.points[:, 1], mesh.points[:, 1].min())
                 case "top":
                     flag_v |= np.isclose(mesh.points[:, 1], mesh.points[:, 1].max())
                 case _:

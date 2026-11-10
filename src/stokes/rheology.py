@@ -43,7 +43,7 @@ def glen_viscosity(b_glen: float, d: NDArray[np.float64]) -> float:
     d22 = d[..., 1]
     d12 = 0.5 * d[..., 2]
     deq2 = 0.5 * (d11 * d11 + d22 * d22) + d12 * d12
-    return 0.5 * b_glen / np.cbrt(np.fmax(deq2, MIN_DEQ2))
+    return 0.5 * b_glen / np.cbrt(deq2 + MIN_DEQ2)
 
 
 def hayhurst_stress(
@@ -52,6 +52,8 @@ def hayhurst_stress(
     tau: NDArray[np.float64],
 ) -> NDArray[np.float64]:
     """Compute the Hayhurst stress."""
+    if config.damage is None:
+        return np.zeros(config.mesh.num_cells, dtype=np.float64)
     alpha = config.damage.alpha
     beta = config.damage.beta
     t11 = tau[:, 0]
@@ -60,12 +62,13 @@ def hayhurst_stress(
     s11 = sigma[:, 0]
     s22 = sigma[:, 1]
     s12 = sigma[:, 2]
-    s33 = s11 - t11
+    p = t11 - s11
+    s33 = -p
+    skk = -3.0 * p
     j2 = 0.5 * (t11 * t11 + t22 * t22) + t12 * t12
     mises = np.sqrt(3.0 * j2)
     tmp = 0.5 * (s11 - s22)
     sig1 = np.fmax(0.5 * (s11 + s22) + np.sqrt(tmp * tmp + s12 * s12), s33)
-    skk = s11 + s22 + s33
     return alpha * sig1 + beta * mises + (1.0 - alpha - beta) * skk
 
 
@@ -111,10 +114,10 @@ def local_damage_rate(
 ) -> NDArray[np.float64]:
     """Evaluate the local damage rate."""
     _, tau, sigma = interpolate_stress(config=config, uvp=uvp, dmg=dmg0)
-    chi = 1e-6 * hayhurst_stress(config=config, sigma=sigma, tau=tau)
+    chi = 1e-6 * hayhurst_stress(config=config, sigma=sigma, tau=tau)  # MPa
     ddmg = np.zeros(config.mesh.num_cells, dtype=np.float64)
     p = tau[:, 0] - sigma[:, 0]
-    skk = 1e-6 * (sigma[:, 0] + sigma[:, 1] - p)  # MPa
+    skk = -3e-6 * p  # MPa
     i = (skk > 0.0) & (chi > 0.0) & (dmg0 < config.damage.max_damage)
     if i.any():
         chi_eff = chi[i] / (1.0 - dmg0[i])
@@ -122,5 +125,4 @@ def local_damage_rate(
         ddmg[i] = (
             config.damage.b_hat * (chi_eff**config.damage.r) / (1.0 - dmg0[i]) ** k_sig
         )
-
     return ddmg
