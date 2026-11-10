@@ -69,9 +69,13 @@ def execute(config: SimulationConfig) -> None:
         # update the damage variable
         dmg = update_damage(config=config, uvp=uvp, dmg0=dmg0)
 
-        # generate plots
+        # generate plot file
         if step % config.plotting.output_interval == 0:
             writer.write_step(config=config, time=t, uvp=uvp, dmg=dmg)
+
+        # exit loop if we're at the last step
+        if step == config.solver.num_steps:
+            return
 
         # update the mesh coordinates
         if step == 0:
@@ -159,8 +163,8 @@ def solve_stokes(
         # compute error
         uv0, p0 = uvp0[:n], uvp0[n:]
         uv, p = uvp[:n], uvp[n:]
-        err_uv = float(np.linalg.norm(uv - uv0) / np.linalg.norm(uv))
-        err_p = float(np.linalg.norm(p - p0) / np.linalg.norm(p))
+        err_uv = float(np.linalg.norm(uv - uv0) / max(1e-16, np.linalg.norm(uv)))
+        err_p = float(np.linalg.norm(p - p0) / max(1e-16, np.linalg.norm(p)))
 
         # update solution
         k += 1
@@ -172,7 +176,7 @@ def solve_stokes(
 
     print(
         f"\nTiming\n- t_assembly: {t_assembly:g} seconds"
-        "\n- t_solve:    {t_solve:g} seconds"
+        f"\n- t_solve:    {t_solve:g} seconds"
     )
     if k < config.solver.max_iterations:
         return uvp, SolverStatus.CONVERGED

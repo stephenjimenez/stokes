@@ -8,14 +8,12 @@
 int eval_strainrate(const int (*cells)[8], const int (*dofs)[20],
                     const double (*x)[2], const double* u, const double xi,
                     const double eta, double (*d)[3], int n_cells) {
-  double n[8];
   double dndxi[2][8], dndx[2][8];
   double b[3][16];
   double xe[8][2], ue[16];
   double jac[2][2], ijac[2][2];
 
-  /* Evaluate shape functions. */
-  q8_shape_functions(xi, eta, n);
+  /* Evaluate shape function gradients. */
   q8_shape_gradients(xi, eta, dndxi);
 
   for (int c = 0; c < n_cells; ++c) {
