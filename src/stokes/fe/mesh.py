@@ -145,7 +145,7 @@ class Mesh:
             dndxi = shape.q8_shape_gradients(xi, eta)
             jac = np.einsum("ij,njk->nik", dndxi, self.points[self.cells])
             det = np.linalg.det(jac)
-            w[:, gp] = det*shape.Q9_GAUSS_WEIGHTS[gp]
+            w[:, gp] = det * shape.Q9_GAUSS_WEIGHTS[gp]
         return w
 
     @property
