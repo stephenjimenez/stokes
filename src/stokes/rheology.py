@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 
 from stokes._core import eval_strainrate
 from stokes.config import SimulationConfig
+from stokes.fe import shape
 
 MIN_DEQ2 = 1e-14
 
@@ -76,9 +77,11 @@ def interpolate_stress(
     config: SimulationConfig,
     uvp: NDArray[np.float64],
     dmg: NDArray[np.float64],
+    xi: float = 0.0,
+    eta: float = 0.0,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
     """Interpolate strain rate, true deviatoric stresses, and true Cauchy stresses at
-    cell centroids.
+    isoparametric coordinates (xi, eta).
     """
     # evaluate strain rate
     cells = np.ascontiguousarray(config.mesh.cells, dtype=np.int32)
@@ -86,7 +89,7 @@ def interpolate_stress(
     x = np.ascontiguousarray(config.mesh.points, dtype=np.float64)
     u = np.ascontiguousarray(uvp, dtype=np.float64)
     d = np.empty((config.mesh.num_cells, 3), dtype=np.float64)
-    eval_strainrate(cells, dofs, x, u, 0.0, 0.0, d)
+    eval_strainrate(cells, dofs, x, u, xi, eta, d)
 
     # interpolate true deviatoric stress and pressure
     tau = (1.0 - dmg)[:, None] * deviatoric_stress(config=config, d=d)
@@ -113,16 +116,26 @@ def local_damage_rate(
     dmg0: NDArray[np.float64],
 ) -> NDArray[np.float64]:
     """Evaluate the local damage rate."""
-    _, tau, sigma = interpolate_stress(config=config, uvp=uvp, dmg=dmg0)
-    chi = 1e-6 * hayhurst_stress(config=config, sigma=sigma, tau=tau)  # MPa
-    ddmg = np.zeros(config.mesh.num_cells, dtype=np.float64)
-    p = tau[:, 0] - sigma[:, 0]
-    skk = -3e-6 * p  # MPa
-    i = (skk > 0.0) & (chi > 0.0) & (dmg0 < config.damage.max_damage)
-    if i.any():
-        chi_eff = chi[i] / (1.0 - dmg0[i])
-        k_sig = config.damage.k1 + config.damage.k2 * skk[i]
-        ddmg[i] = (
-            config.damage.b_hat * (chi_eff**config.damage.r) / (1.0 - dmg0[i]) ** k_sig
+    ddmg = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
+    for gp in range(9):
+        xi, eta = shape.Q9_GAUSS_POINTS[gp]
+        _, tau, sigma = interpolate_stress(
+            config=config,
+            uvp=uvp,
+            dmg=dmg0[:, gp],
+            xi=xi,
+            eta=eta,
         )
+        chi = 1e-6 * hayhurst_stress(config=config, sigma=sigma, tau=tau)  # MPa
+        p = tau[:, 0] - sigma[:, 0]
+        skk = -3e-6 * p  # MPa
+        i = (skk > 0.0) & (chi > 0.0) & (dmg0[:, gp] < config.damage.max_damage)
+        if i.any():
+            chi_eff = chi[i] / (1.0 - dmg0[i, gp])
+            k_sig = config.damage.k1 + config.damage.k2 * skk[i]
+            ddmg[i, gp] = (
+                config.damage.b_hat
+                * (chi_eff**config.damage.r)
+                / (1.0 - dmg0[i, gp]) ** k_sig
+            )
     return ddmg
