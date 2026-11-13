@@ -6,7 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.sparse import csc_matrix
 
-from stokes._core import assemble_stokes
+from stokes._core import assemble_damage, assemble_stokes
 from stokes.fe.mesh import Mesh
 
 
@@ -117,3 +117,88 @@ class StokesAssembler:
         assemble_stokes(cells, dofs, x, u, dmg, bf, b_glen, alpha, ae, be, fe)
 
         return ae, be, fe
+
+
+class DamageAssembler:
+    """Precompiles the CSC sparsity pattern for zero-allocation O(nnz) Q4
+    damage assembly.
+    """
+
+    mesh: Mesh
+    num_vertices: int
+    nnz: int
+    coo_to_csc_map: NDArray[np.intp]
+    indptr: NDArray[np.int32]
+    indices: NDArray[np.int32]
+    corner_vertices: NDArray[np.int32]
+    _raw_vals: NDArray[np.float64]
+
+    def __init__(self, mesh: Mesh) -> None:
+        """Initialize the assembler and precompute the CSC index map."""
+        self.mesh = mesh
+        self.num_vertices = mesh.num_vertices
+
+        # Map 4 corner vertices to 0-based Q4 vertex indices [0, num_vertices)
+        corner_vertices = (mesh.p_dofs - mesh.num_dofs[0]).astype(np.int32)
+        self.corner_vertices = corner_vertices
+
+        # build COO index arrays for [Ae (4x4)]
+        r_ae = np.repeat(corner_vertices[:, :, None], 4, axis=2).ravel()
+        c_ae = np.repeat(corner_vertices[:, None, :], 4, axis=1).ravel()
+
+        # sort primarily by col, secondarily by row (exact canonical CSC order)
+        linear_idx = r_ae.astype(np.intp) + c_ae.astype(np.intp) * self.num_vertices
+        unique_linear, self.coo_to_csc_map = np.unique(linear_idx, return_inverse=True)
+        unique_cols = (unique_linear // self.num_vertices).astype(np.int32)
+        unique_rows = (unique_linear % self.num_vertices).astype(np.int32)
+
+        # build CSC indptr and indices directly from sorted unique_cols/unique_rows
+        self.indices = unique_rows
+        self.indptr = np.searchsorted(
+            unique_cols, np.arange(self.num_vertices + 1, dtype=np.int32)
+        ).astype(np.int32)
+        self.nnz = len(unique_linear)
+
+        # preallocate buffer for ae (16 * N)
+        self._raw_vals = np.empty(16 * mesh.num_cells, dtype=np.float64)
+
+    def assemble_csc(
+        self,
+        ae: NDArray[np.float64],
+        fe: NDArray[np.float64],
+    ) -> tuple[csc_matrix, NDArray[np.float64]]:
+        """Assemble global CSC matrix and RHS vector without sorting or temp buffers."""
+        self._raw_vals[:] = ae.ravel()
+
+        csc_data = np.bincount(
+            self.coo_to_csc_map,
+            weights=self._raw_vals,
+            minlength=self.nnz,
+        )
+
+        f = np.zeros(self.num_vertices, dtype=np.float64)
+        np.add.at(f, self.corner_vertices, fe)
+
+        a = csc_matrix(
+            (csc_data, self.indices, self.indptr),
+            shape=(self.num_vertices, self.num_vertices),
+            copy=False,
+        )
+        return a, f
+
+    def assemble_system(
+        self,
+        chi: NDArray[np.float64],
+        length_scale: float,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """Assemble element matrices for the damage Helmholtz system via compiled C."""
+        cells = np.ascontiguousarray(self.mesh.cells, dtype=np.int32)
+        x = np.ascontiguousarray(self.mesh.points, dtype=np.float64)
+        chi_arr = np.ascontiguousarray(chi, dtype=np.float64)
+
+        ae = np.empty((self.mesh.num_cells, 4, 4), dtype=np.float64)
+        fe = np.empty((self.mesh.num_cells, 4), dtype=np.float64)
+
+        assemble_damage(cells, x, chi_arr, float(length_scale), ae, fe)
+
+        return ae, fe

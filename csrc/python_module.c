@@ -87,9 +87,50 @@ static PyObject* py_eval_strainrate(PyObject* self, PyObject* args) {
   Py_RETURN_NONE;
 }
 
+/* Wrapper for assemble_damage */
+static PyObject* py_assemble_damage(PyObject* self, PyObject* args) {
+  PyArrayObject *py_cells, *py_x, *py_chi;
+  PyArrayObject *py_ae, *py_fe;
+  double length_scale;
+
+  if (!PyArg_ParseTuple(
+          args, "O!O!O!dO!O!", &PyArray_Type, &py_cells, &PyArray_Type, &py_x,
+          &PyArray_Type, &py_chi, &length_scale, &PyArray_Type, &py_ae,
+          &PyArray_Type, &py_fe)) {
+    return NULL;
+  }
+
+  int n_cells = (int)PyArray_DIM(py_cells, 0);
+
+  /* Extract direct raw C pointers from NumPy arrays (zero-copy) */
+  const int (*cells)[8] = (const int (*)[8])PyArray_DATA(py_cells);
+  const double (*x)[2] = (const double (*)[2])PyArray_DATA(py_x);
+  const double (*chi)[9] = (const double (*)[9])PyArray_DATA(py_chi);
+
+  double (*ae)[4][4] = (double (*)[4][4])PyArray_DATA(py_ae);
+  double (*fe)[4] = (double (*)[4])PyArray_DATA(py_fe);
+
+  /* Release the Python Global Interpreter Lock (GIL) during C computation */
+  int ierr = 0;
+  Py_BEGIN_ALLOW_THREADS ierr =
+      assemble_damage(cells, x, chi, length_scale, ae, fe, n_cells);
+  Py_END_ALLOW_THREADS
+
+  if (ierr != 0) {
+    PyErr_SetString(
+        PyExc_RuntimeError,
+        "Damage assembly failed: negative or zero Jacobian detected.");
+    return NULL;
+  }
+
+  Py_RETURN_NONE;
+}
+
 static PyMethodDef CoreMethods[] = {
     {"assemble_stokes", py_assemble_stokes, METH_VARARGS,
      "Assembles 2D Stokes element matrices in parallel C."},
+    {"assemble_damage", py_assemble_damage, METH_VARARGS,
+     "Assembles 2D Q4 Helmholtz damage element matrices in parallel C."},
     {"eval_strainrate", py_eval_strainrate, METH_VARARGS,
      "Evaluates 2D strain rate tensor across cells at reference coordinates "
      "(xi, eta)."},

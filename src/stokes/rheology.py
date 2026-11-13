@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from math import exp
+from typing import Literal, overload
 
 import numpy as np
 from numpy.typing import NDArray
@@ -93,7 +94,7 @@ def interpolate_stress(
 
     # interpolate true deviatoric stress and pressure
     tau = (1.0 - dmg)[:, None] * deviatoric_stress(config=config, d=d)
-    p = uvp[dofs[:, 16:]].mean(axis=1)
+    p = shape.q4_shape_functions(xi, eta) @ uvp[dofs[:, 16:]].T
 
     # zero out the stress in failed elements
     if config.damage is not None:
@@ -110,13 +111,41 @@ def interpolate_stress(
     return d, tau, sigma
 
 
-def local_damage_rate(
+@overload
+def hayhurst_driving_stress(
     config: SimulationConfig,
     uvp: NDArray[np.float64],
     dmg0: NDArray[np.float64],
-) -> NDArray[np.float64]:
-    """Evaluate the local damage rate."""
-    ddmg = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
+    return_skk: Literal[True],
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]: ...
+
+
+@overload
+def hayhurst_driving_stress(
+    config: SimulationConfig,
+    uvp: NDArray[np.float64],
+    dmg0: NDArray[np.float64],
+    return_skk: Literal[False] = False,
+) -> NDArray[np.float64]: ...
+
+
+def hayhurst_driving_stress(
+    config: SimulationConfig,
+    uvp: NDArray[np.float64],
+    dmg0: NDArray[np.float64],
+    return_skk: bool = False,
+) -> NDArray[np.float64] | tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Evaluate Hayhurst driving stress (in MPa) at the 9 Gauss points."""
+    num_cells = config.mesh.num_cells
+    if config.damage is None:
+        chi_zeros = np.zeros((num_cells, 9), dtype=np.float64)
+        if return_skk:
+            return chi_zeros, np.zeros_like(chi_zeros)
+        return chi_zeros
+
+    chi = np.zeros((num_cells, 9), dtype=np.float64)
+    skk = np.zeros((num_cells, 9), dtype=np.float64)
+
     for gp in range(9):
         xi, eta = shape.Q9_GAUSS_POINTS[gp]
         _, tau, sigma = interpolate_stress(
@@ -126,16 +155,62 @@ def local_damage_rate(
             xi=xi,
             eta=eta,
         )
-        chi = 1e-6 * hayhurst_stress(config=config, sigma=sigma, tau=tau)  # MPa
+        chi_gp = 1e-6 * hayhurst_stress(config=config, sigma=sigma, tau=tau)  # MPa
         p = tau[:, 0] - sigma[:, 0]
-        skk = -3e-6 * p  # MPa
-        i = (skk > 0.0) & (chi > 0.0) & (dmg0[:, gp] < config.damage.max_damage)
-        if i.any():
-            chi_eff = chi[i] / (1.0 - dmg0[i, gp])
-            k_sig = config.damage.k1 + config.damage.k2 * skk[i]
-            ddmg[i, gp] = (
-                config.damage.b_hat
-                * (chi_eff**config.damage.r)
-                / (1.0 - dmg0[i, gp]) ** k_sig
-            )
+        skk_gp = -3e-6 * p  # MPa, tr(sigma)
+        skk[:, gp] = skk_gp
+
+        # Zero out chi where D >= D_crit or hydrostatic stress is compressive:
+        # tr(sigma) <= 0.
+        mask = (
+            (dmg0[:, gp] < config.damage.critical_damage)
+            & (skk_gp > 0.0)
+            & (chi_gp > 0.0)
+        )
+        chi[:, gp] = np.where(mask, chi_gp, 0.0)
+
+    if return_skk:
+        return chi, skk
+    return chi
+
+
+def damage_rate(
+    config: SimulationConfig,
+    chi: NDArray[np.float64],
+    dmg0: NDArray[np.float64],
+    skk: NDArray[np.float64] | None = None,
+) -> NDArray[np.float64]:
+    """Evaluate damage rate dD/dt from Hayhurst driving stress."""
+    if config.damage is None:
+        return np.zeros_like(dmg0)
+
+    ddmg = np.zeros_like(dmg0)
+    active = (dmg0 < config.damage.critical_damage) & (chi > 0.0)
+    if not active.any():
+        return ddmg
+
+    chi_eff = chi[active] / (1.0 - dmg0[active])
+    if skk is not None:
+        skk_active = np.maximum(skk[active], 0.0)
+        k_sig = config.damage.k1 + config.damage.k2 * skk_active
+    else:
+        k_sig = config.damage.k1
+
+    ddmg[active] = (
+        config.damage.b_hat * (chi_eff**config.damage.r) / (1.0 - dmg0[active]) ** k_sig
+    )
     return ddmg
+
+
+def local_damage_rate(
+    config: SimulationConfig,
+    uvp: NDArray[np.float64],
+    dmg0: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    """Evaluate the local damage rate."""
+    if config.damage is None:
+        return np.zeros_like(dmg0)
+    chi, skk = hayhurst_driving_stress(
+        config=config, uvp=uvp, dmg0=dmg0, return_skk=True
+    )
+    return damage_rate(config=config, chi=chi, dmg0=dmg0, skk=skk)
