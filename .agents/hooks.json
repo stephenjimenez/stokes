@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "postEdit": [
+      {
+        "matcher": "csrc/.*\\.(c|h)$|setup\\.py$",
+        "command": "uv pip install -e . --no-build-isolation",
+        "description": "Automatically recompile stokes._core when C sources or headers change"
+      },
+      {
+        "matcher": "src/.*\\.py$|tests/.*\\.py$",
+        "command": "uv run ruff check --fix && uv run ruff format",
+        "description": "Auto-lint and format modified Python files with Ruff"
+      }
+    ],
+    "preComplete": [
+      {
+        "command": "uv run ruff check && uv run pytest",
+        "description": "Verify clean lint and passing test suite before completing a task"
+      }
+    ]
+  }
+}
