@@ -26,7 +26,7 @@ static PyObject* py_assemble_stokes(PyObject* self, PyObject* args) {
   const int (*cells)[8] = (const int (*)[8])PyArray_DATA(py_cells);
   const int (*dofs)[20] = (const int (*)[20])PyArray_DATA(py_dofs);
   const double (*x)[2] = (const double (*)[2])PyArray_DATA(py_x);
-  const double*(*dmg)[9] = (const double*)PyArray_DATA(py_dmg);
+  const double (*dmg)[9] = (const double*)PyArray_DATA(py_dmg);
   const double* u = (const double*)PyArray_DATA(py_u);
   const double* bf = (const double*)PyArray_DATA(py_bf);
 
