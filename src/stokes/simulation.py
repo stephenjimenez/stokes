@@ -44,7 +44,7 @@ def execute(config: SimulationConfig) -> None:
     writer = ParaViewWriter(output_dir=Path.cwd() / "output", base_name="stokes")
 
     # initial damage state
-    dmg0 = np.zeros(config.mesh.num_cells, dtype=np.float64)
+    dmg0 = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
 
     # initial guess
     uvp0 = np.zeros(sum(config.mesh.num_dofs), dtype=np.float64)
@@ -94,33 +94,23 @@ def regularize_damage_rate(
     ddmg_loc: NDArray[np.float64],
 ) -> NDArray[np.float64]:
     """Regularize the damage rate using a k-d tree."""
-    # compute element areas and centroids
-    corners = config.mesh.points[config.mesh.cells[:, :4]]
-    x0, y0 = corners[:, 0, 0], corners[:, 0, 1]
-    x1, y1 = corners[:, 1, 0], corners[:, 1, 1]
-    x2, y2 = corners[:, 2, 0], corners[:, 2, 1]
-    x3, y3 = corners[:, 3, 0], corners[:, 3, 1]
-    areas = 0.5 * np.abs(
-        (x0 * y1 - x1 * y0)
-        + (x1 * y2 - x2 * y1)
-        + (x2 * y3 - x3 * y2)
-        + (x3 * y0 - x0 * y3)
-    )
-    x = corners.mean(axis=1)
+    # compute Gauss point volumes and coordinates
+    vol = config.mesh.gauss_point_volumes().ravel()
+    x = config.mesh.gauss_point_coordinates()
 
     # compute distance-based weights
     tree = KDTree(x)
     neighbors = tree.query_ball_point(x=x, r=3.0 * config.damage.length_scale)
     inv_l2 = 1.0 / config.damage.length_scale**2
-    ddmg = np.empty_like(ddmg_loc)
+    ddmg = np.empty(9 * config.mesh.num_cells, dtype=np.float64)
     for i, nbr in enumerate(neighbors):
         dx = x[i, 0] - x[nbr, 0]
         dy = x[i, 1] - x[nbr, 1]
         u2 = (dx * dx + dy * dy) * inv_l2
-        w = np.exp(-config.damage.kappa * u2) * areas[nbr]
-        ddmg[i] = np.average(ddmg_loc[nbr], weights=w)
+        w = np.exp(-config.damage.kappa * u2) * vol[nbr]
+        ddmg[i] = np.average(ddmg_loc.ravel()[nbr], weights=w)
 
-    return ddmg
+    return ddmg.reshape(-1, 9)
 
 
 def solve_stokes(
@@ -138,7 +128,7 @@ def solve_stokes(
     t_solve = 0.0
     n = config.mesh.num_dofs[0]
     while k < config.solver.max_iterations and err_uv > config.solver.tolerance:
-        alpha = 0.0 if k % 3 == 0 else 1.0
+        alpha = 0.0 if k % 4 == 0 else 1.0
 
         # assemble the system of equations
         tic = perf_counter()

@@ -80,9 +80,11 @@ class ParaViewWriter:
         grid.point_data["Pressure"] = pressure
 
         # save cell data
-        d, tau, sigma = interpolate_stress(config=config, uvp=uvp, dmg=dmg)
+        vol = config.mesh.gauss_point_volumes()
+        dmg_avg = np.average(dmg, weights=vol, axis=1)
+        d, tau, sigma = interpolate_stress(config=config, uvp=uvp, dmg=dmg_avg)
         if config.damage is not None:
-            grid.cell_data["Damage"] = dmg
+            grid.cell_data["Damage"] = dmg_avg
         if config.plotting.plot_cauchy_stress:
             grid.cell_data["CauchyStress"] = sigma
             vtk_arr = grid.cell_data["CauchyStress"].VTKObject

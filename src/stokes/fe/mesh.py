@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Self
 
 import numpy as np
 
+from stokes.fe import shape
+
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
@@ -41,6 +43,16 @@ class Mesh:
         self.u_dofs.setflags(write=False)
         self.v_dofs.setflags(write=False)
         self.vertices.setflags(write=False)
+
+    def cell_areas(self) -> NDArray[np.float64]:
+        """Compute cell areas."""
+        a = self.points[self.cells[:, 0]]
+        b = self.points[self.cells[:, 1]]
+        c = self.points[self.cells[:, 2]]
+        d = self.points[self.cells[:, 3]]
+        u = c - a
+        v = d - b
+        return 0.5 * (u[:, 0] * v[:, 1] - v[:, 0] * u[:, 1])
 
     def cell_dofs(self) -> NDArray[np.int32]:
         """Construct an array of cell degrees of freedom."""
@@ -114,6 +126,27 @@ class Mesh:
                 cells[i, 4 + j] = edge_map[key]
 
         return cls(cells=cells, points=np.vstack([_vertices, midpoints]))
+
+    def gauss_point_coordinates(self) -> NDArray[np.float64]:
+        """Evaluate the coordinates of Gauss points."""
+        x = np.empty((self.num_cells, 9, 2), dtype=np.float64)
+        for gp in range(9):
+            xi, eta = shape.Q9_GAUSS_POINTS[gp]
+            n = shape.q8_shape_functions(xi, eta)
+            x[:, gp, 0] = self.points[self.cells, 0] @ n
+            x[:, gp, 1] = self.points[self.cells, 1] @ n
+        return x.reshape(-1, 2)
+
+    def gauss_point_volumes(self) -> NDArray[np.float64]:
+        """Evaluate Gauss point volumes."""
+        w = np.empty((self.num_cells, 9), dtype=np.float64)
+        for gp in range(9):
+            xi, eta = shape.Q9_GAUSS_POINTS[gp]
+            dndxi = shape.q8_shape_gradients(xi, eta)
+            jac = np.einsum("ij,njk->nik", dndxi, self.points[self.cells])
+            det = np.linalg.det(jac)
+            w[:, gp] = det*shape.Q9_GAUSS_WEIGHTS[gp]
+        return w
 
     @property
     def num_dofs(self) -> tuple[int, int]:

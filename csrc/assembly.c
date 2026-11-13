@@ -7,10 +7,11 @@
 
 /* Assemble the Stokes system of equations. */
 int assemble_stokes(const int (*cells)[8], const int (*dofs)[20],
-                    const double (*x)[2], const double* u, const double* dmg,
-                    const double bf[2], const double b_glen,
-                    const double newton_alpha, double (*ae)[16][16],
-                    double (*be)[4][16], double (*fe)[16], int n_cells) {
+                    const double (*x)[2], const double* u,
+                    const double (*dmg)[9], const double bf[2],
+                    const double b_glen, const double newton_alpha,
+                    double (*ae)[16][16], double (*be)[4][16], double (*fe)[16],
+                    int n_cells) {
   int global_err = 0;
   for (int i = 0; i < n_cells; ++i) {
     double ue[16], xe[8][2];
@@ -32,7 +33,7 @@ int assemble_stokes(const int (*cells)[8], const int (*dofs)[20],
 
 /* Assemble matrices for a single element. */
 int assemble_stokes_cell(const double x[8][2], const double u[16],
-                         const double dmg, const double bf[2],
+                         const double dmg[9], const double bf[2],
                          const double b_glen, const double newton_alpha,
                          double ae[16][16], double be[4][16], double fe[16]) {
   double n4[4], n8[8];
@@ -105,7 +106,7 @@ int assemble_stokes_cell(const double x[8][2], const double u[16],
 
     /* Compute the viscosity. */
     const double deq2 = 0.5 * (d11 * d11 + d22 * d22) + d12 * d12;
-    const double mu = (1.0 - dmg) * glen_viscosity(b_glen, deq2);
+    const double mu = (1.0 - dmg[gp]) * glen_viscosity(b_glen, deq2);
 
     /* Compute Newton tangent scalar gamma. */
     double gamma = 0.0;
