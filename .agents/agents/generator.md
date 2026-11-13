@@ -2,7 +2,7 @@
 name: generator
 description: Implementation and code generation agent operating in an isolated branch workspace.
 model: inherit
-workspace: branch
+workspace: inherit
 tools:
   write: true
   mcp: false
