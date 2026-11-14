@@ -38,7 +38,6 @@ class DamageFormat(TypedDict):
     alpha: NotRequired[float]
     beta: NotRequired[float]
     length_scale: NotRequired[float]
-    kappa: NotRequired[float]
     max_damage: NotRequired[float]
     critical_damage: NotRequired[float]
 
@@ -98,9 +97,8 @@ class DamageConfig:
     alpha: float = 0.21
     beta: float = 0.63
     length_scale: float = 10.0  # m
-    kappa: float = 2.0
     max_damage: float = 0.99
-    critical_damage: float = 0.63
+    critical_damage: float = 0.6
 
     @classmethod
     def from_dict(cls, d: DamageFormat) -> Self:
@@ -113,7 +111,6 @@ class DamageConfig:
             alpha=d.get("alpha", cls.alpha),
             beta=d.get("beta", cls.beta),
             length_scale=d.get("length_scale", cls.length_scale),
-            kappa=d.get("kappa", cls.kappa),
             max_damage=d.get("max_damage", cls.max_damage),
             critical_damage=d.get("critical_damage", cls.critical_damage),
         )

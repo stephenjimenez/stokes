@@ -93,10 +93,10 @@ static PyObject* py_assemble_damage(PyObject* self, PyObject* args) {
   PyArrayObject *py_ae, *py_fe;
   double length_scale;
 
-  if (!PyArg_ParseTuple(
-          args, "O!O!O!dO!O!", &PyArray_Type, &py_cells, &PyArray_Type, &py_x,
-          &PyArray_Type, &py_chi, &length_scale, &PyArray_Type, &py_ae,
-          &PyArray_Type, &py_fe)) {
+  if (!PyArg_ParseTuple(args, "O!O!O!dO!O!", &PyArray_Type, &py_cells,
+                        &PyArray_Type, &py_x, &PyArray_Type, &py_chi,
+                        &length_scale, &PyArray_Type, &py_ae, &PyArray_Type,
+                        &py_fe)) {
     return NULL;
   }
 
@@ -116,7 +116,7 @@ static PyObject* py_assemble_damage(PyObject* self, PyObject* args) {
       assemble_damage(cells, x, chi, length_scale, ae, fe, n_cells);
   Py_END_ALLOW_THREADS
 
-  if (ierr != 0) {
+      if (ierr != 0) {
     PyErr_SetString(
         PyExc_RuntimeError,
         "Damage assembly failed: negative or zero Jacobian detected.");

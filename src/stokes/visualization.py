@@ -10,7 +10,8 @@ import numpy as np
 import pyvista as pv
 from numpy.typing import NDArray
 
-from stokes.rheology import hayhurst_stress, interpolate_stress
+from stokes.fe import shape
+from stokes.rheology import interpolate_stress
 
 if TYPE_CHECKING:
     from stokes.config import SimulationConfig
@@ -42,6 +43,7 @@ class ParaViewWriter:
         time: float,
         uvp: NDArray[np.float64],
         dmg: NDArray[np.float64],
+        chi: NDArray[np.float64],
     ) -> Path:
         """Write a single time step to a .vtu file and update the master .pvd file."""
 
@@ -79,20 +81,29 @@ class ParaViewWriter:
         grid.point_data["Velocity"] = velocity_3d
         grid.point_data["Pressure"] = pressure
 
-        # save cell data
+        # evaluate cell data at Gauss points
         vol = config.mesh.gauss_point_volumes()
-        dmg_avg = np.average(dmg, weights=vol, axis=1)
-        d, tau, sigma = interpolate_stress(config=config, uvp=uvp, dmg=dmg_avg)
+        d = np.empty((config.mesh.num_cells, 3, 9), dtype=np.float64)
+        tau = np.empty((config.mesh.num_cells, 3, 9), dtype=np.float64)
+        sigma = np.empty((config.mesh.num_cells, 3, 9), dtype=np.float64)
+        for gp in range(9):
+            d[..., gp], tau[..., gp], sigma[..., gp] = interpolate_stress(
+                config=config,
+                uvp=uvp,
+                dmg=dmg[:, gp],
+            )
+
+        # save cell data
         if config.damage is not None:
-            grid.cell_data["Damage"] = dmg_avg
+            grid.cell_data["Damage"] = np.average(dmg, weights=vol, axis=1)
         if config.plotting.plot_cauchy_stress:
-            grid.cell_data["CauchyStress"] = sigma
+            grid.cell_data["CauchyStress"] = _weighted_average(a=sigma, w=vol)
             vtk_arr = grid.cell_data["CauchyStress"].VTKObject
             vtk_arr.SetComponentName(0, "XX")
             vtk_arr.SetComponentName(1, "YY")
             vtk_arr.SetComponentName(2, "XY")
         if config.plotting.plot_deviatoric_stress:
-            grid.cell_data["DeviatoricStress"] = tau
+            grid.cell_data["DeviatoricStress"] = _weighted_average(a=tau, w=vol)
             vtk_arr = grid.cell_data["DeviatoricStress"].VTKObject
             vtk_arr.SetComponentName(0, "XX")
             vtk_arr.SetComponentName(1, "YY")
@@ -103,10 +114,10 @@ class ParaViewWriter:
                     "- No Hayhurst stress parameters were provided; "
                     "cannot plot this variable."
                 )
-            chi = hayhurst_stress(config=config, sigma=sigma, tau=tau)
-            grid.cell_data["HayhurstStress"] = chi
+            else:
+                grid.cell_data["HayhurstStress"] = np.average(chi, weights=vol, axis=1)
         if config.plotting.plot_strain_rate:
-            grid.cell_data["StrainRate"] = d
+            grid.cell_data["StrainRate"] = _weighted_average(a=d, w=vol)
             vtk_arr = grid.cell_data["StrainRate"].VTKObject
             vtk_arr.SetComponentName(0, "XX")
             vtk_arr.SetComponentName(1, "YY")
@@ -145,3 +156,10 @@ class ParaViewWriter:
         tree = ET.ElementTree(root)
         ET.indent(tree, space="  ", level=0)
         tree.write(self.pvd_path, encoding="utf-8", xml_declaration=True)
+
+
+def _weighted_average(
+    a: NDArray[np.float64],
+    w: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    return np.einsum("ecq,eq->ec", a, w) / w.sum(axis=1, keepdims=True)

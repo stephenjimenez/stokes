@@ -14,18 +14,11 @@ from stokes.fe import shape
 from stokes.fe.assembly import DamageAssembler
 from stokes.fe.bc import BoundaryConditions
 from stokes.fe.mesh import Mesh
-from stokes.rheology import (
-    damage_rate,
-    hayhurst_driving_stress,
-    interpolate_stress,
-)
+from stokes.rheology import damage_rate, hayhurst_driving_stress, interpolate_stress
 from stokes.simulation import update_damage
 
 
-def make_config(
-    mesh: Mesh,
-    damage: DamageConfig | None = None,
-) -> SimulationConfig:
+def make_config(mesh: Mesh, damage: DamageConfig | None = None) -> SimulationConfig:
     """Helper to create SimulationConfig with test defaults."""
     return SimulationConfig(
         bc=BoundaryConditions.free_slip_bc(mesh=mesh, edges=[]),
@@ -132,21 +125,19 @@ def test_hayhurst_driving_stress_screening() -> None:
     uvp[p_dofs] = 1e5  # 100 kPa compression (p > 0)
 
     dmg0 = np.zeros((mesh.num_cells, 9), dtype=np.float64)
-    chi = hayhurst_driving_stress(config=config, uvp=uvp, dmg0=dmg0)
+    chi, _ = hayhurst_driving_stress(config=config, uvp=uvp, dmg0=dmg0)
     # Under hydrostatic compression, chi should be screened to 0
     assert np.all(chi == 0.0)
 
     # Now apply negative pressure (tension -> tr(sigma) > 0)
     uvp[p_dofs] = -1e5  # 100 kPa tension (p < 0)
-    chi_tensile, skk = hayhurst_driving_stress(
-        config=config, uvp=uvp, dmg0=dmg0, return_skk=True
-    )
+    chi_tensile, skk = hayhurst_driving_stress(config=config, uvp=uvp, dmg0=dmg0)
     assert np.all(skk > 0.0)
     assert np.all(chi_tensile > 0.0)
 
     # Mark element 0 as failed (D >= critical_damage)
     dmg0[0, :] = 0.70
-    chi_failed = hayhurst_driving_stress(config=config, uvp=uvp, dmg0=dmg0)
+    chi_failed, _ = hayhurst_driving_stress(config=config, uvp=uvp, dmg0=dmg0)
     assert np.all(chi_failed[0, :] == 0.0)
     assert np.all(chi_failed[1:, :] > 0.0)
 

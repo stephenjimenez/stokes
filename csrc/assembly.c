@@ -180,7 +180,7 @@ int assemble_damage_cell(const double x[8][2], const double chi[9],
   double dn4dxi[2][4], dn4dx[2][4];
   double dndxi[2][8];
   double jac[2][2], ijac[2][2];
-  const double l2 = length_scale * length_scale;
+  const double c = 0.125 * length_scale * length_scale;
 
   for (int i = 0; i < 4; ++i) {
     fe[i] = 0.0;
@@ -235,7 +235,7 @@ int assemble_damage_cell(const double x[8][2], const double chi[9],
       for (int b = 0; b < 4; ++b) {
         const double mass = na * n4[b];
         const double stiff = grad_x_a * dn4dx[0][b] + grad_y_a * dn4dx[1][b];
-        ae[a][b] += (mass + l2 * stiff) * w_det;
+        ae[a][b] += (mass + c * stiff) * w_det;
       }
       fe[a] += na * chi[gp] * w_det;
     }

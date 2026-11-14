@@ -13,11 +13,7 @@ from stokes.config import SimulationConfig
 from stokes.fe import shape
 from stokes.fe.assembly import DamageAssembler, StokesAssembler
 from stokes.fe.bc import apply_bcs_inplace
-from stokes.rheology import (
-    damage_rate,
-    glen_coefficient,
-    hayhurst_driving_stress,
-)
+from stokes.rheology import damage_rate, glen_coefficient, hayhurst_driving_stress
 from stokes.visualization import ParaViewWriter
 
 YEARS_TO_HOURS = 8760.0
@@ -44,7 +40,7 @@ def execute(config: SimulationConfig) -> None:
     dt = config.solver.time_step / YEARS_TO_HOURS
     b_glen = glen_coefficient(config.rheology.temperature)
     body_force = config.rheology.body_force()
-    assembler = StokesAssembler(config.mesh)
+    stokes_assembler = StokesAssembler(config.mesh)
     damage_assembler = DamageAssembler(config.mesh)
     writer = ParaViewWriter(output_dir=Path.cwd() / "output", base_name="stokes")
 
@@ -61,7 +57,7 @@ def execute(config: SimulationConfig) -> None:
         # solve the Stokes problem
         uvp, status = solve_stokes(
             config=config,
-            assembler=assembler,
+            stokes_assembler=stokes_assembler,
             uvp0=uvp0,
             dmg0=dmg0,
             b_glen=b_glen,
@@ -72,7 +68,7 @@ def execute(config: SimulationConfig) -> None:
             raise RuntimeError(msg)
 
         # update the damage variable
-        dmg = update_damage(
+        dmg, chi_bar = update_damage(
             config=config,
             uvp=uvp,
             dmg0=dmg0,
@@ -81,7 +77,7 @@ def execute(config: SimulationConfig) -> None:
 
         # generate plot file
         if step % config.plotting.output_interval == 0:
-            writer.write_step(config=config, time=t, uvp=uvp, dmg=dmg)
+            writer.write_step(config=config, time=t, uvp=uvp, dmg=dmg, chi=chi_bar)
 
         # exit loop if we're at the last step
         if step == config.solver.num_steps:
@@ -101,7 +97,7 @@ def execute(config: SimulationConfig) -> None:
 
 def solve_stokes(
     config: SimulationConfig,
-    assembler: StokesAssembler,
+    stokes_assembler: StokesAssembler,
     uvp0: NDArray[np.float64],
     dmg0: NDArray[np.float64],
     b_glen: float,
@@ -118,7 +114,7 @@ def solve_stokes(
 
         # assemble the system of equations
         tic = perf_counter()
-        ae, be, fe = assembler.assemble_system(
+        ae, be, fe = stokes_assembler.assemble_system(
             uvp=uvp0,
             b_glen=b_glen,
             damage=dmg0,
@@ -126,7 +122,7 @@ def solve_stokes(
             alpha=alpha,
         )
         apply_bcs_inplace(ae=ae, be=be, fe=fe, bc=config.bc)
-        a, b = assembler.assemble_csc(ae=ae, be=be, fe=fe)
+        a, b = stokes_assembler.assemble_csc(ae=ae, be=be, fe=fe)
         toc = perf_counter()
         t_assembly += toc - tic
 
@@ -164,30 +160,28 @@ def update_damage(
     uvp: NDArray[np.float64],
     dmg0: NDArray[np.float64],
     damage_assembler: DamageAssembler | None = None,
-) -> NDArray[np.float64]:
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Update the damage variable using implicit gradient regularization."""
     if config.damage is None:
-        return dmg0
+        return dmg0, np.zeros_like(dmg0)
 
     if damage_assembler is None:
         damage_assembler = DamageAssembler(config.mesh)
 
     dt = config.solver.time_step * 3600.0
 
-    # 1. Compute local Hayhurst stress chi of shape (num_cells, 9) at the 9 Gauss points
-    chi, skk = hayhurst_driving_stress(
-        config=config, uvp=uvp, dmg0=dmg0, return_skk=True
-    )
+    # compute local Hayhurst stress chi of shape (num_cells, 9) at the 9 Gauss points
+    chi, skk = hayhurst_driving_stress(config=config, uvp=uvp, dmg0=dmg0)
 
-    # 2. Assemble and solve the Q4 linear system a, b
+    # assemble and solve the Q4 linear system a, b
     ae, fe = damage_assembler.assemble_system(
-        chi=chi, length_scale=config.damage.length_scale
+        chi=chi,
+        length_scale=config.damage.length_scale,
     )
     a, b = damage_assembler.assemble_csc(ae=ae, fe=fe)
     chi_nodes = spsolve(a, b)
-    chi_nodes = np.fmax(chi_nodes, 0.0)
 
-    # 3. Interpolate chi_nodes from corner nodes back to the 9 Gauss points
+    # interpolate chi_nodes from corner nodes back to the 9 Gauss points
     corner_idx = damage_assembler.corner_vertices
     chi_cell_nodes = chi_nodes[corner_idx]
     n4_gp = np.array(
@@ -195,10 +189,9 @@ def update_damage(
         dtype=np.float64,
     )
     chi_bar = chi_cell_nodes @ n4_gp.T
-    chi_bar = np.fmax(chi_bar, 0.0)
 
-    # 4. Evaluate the local damage rate and advance
+    # evaluate the damage rate and advance
     ddmg = damage_rate(config=config, chi=chi_bar, dmg0=dmg0, skk=skk)
     dmg = dmg0 + ddmg * dt
     dmg[dmg > config.damage.critical_damage] = config.damage.max_damage
-    return dmg
+    return dmg, chi_bar
