@@ -52,13 +52,13 @@ static PyObject* py_assemble_stokes(PyObject* self, PyObject* args) {
 
 /* Wrapper for eval_strainrate */
 static PyObject* py_eval_strainrate(PyObject* self, PyObject* args) {
-  PyArrayObject *py_cells, *py_dofs, *py_x, *py_u, *py_epsilon;
+  PyArrayObject *py_cells, *py_dofs, *py_x, *py_u, *py_d;
   double xi, eta;
 
   if (!PyArg_ParseTuple(args, "O!O!O!O!ddO!", &PyArray_Type, &py_cells,
                         &PyArray_Type, &py_dofs, &PyArray_Type, &py_x,
                         &PyArray_Type, &py_u, &xi, &eta, &PyArray_Type,
-                        &py_epsilon)) {
+                        &py_d)) {
     return NULL;
   }
 
@@ -69,12 +69,12 @@ static PyObject* py_eval_strainrate(PyObject* self, PyObject* args) {
   const int (*dofs)[20] = (const int (*)[20])PyArray_DATA(py_dofs);
   const double (*x)[2] = (const double (*)[2])PyArray_DATA(py_x);
   const double* u = (const double*)PyArray_DATA(py_u);
-  double (*epsilon)[3] = (double (*)[3])PyArray_DATA(py_epsilon);
+  double (*d)[3] = (double (*)[4])PyArray_DATA(py_d);
 
   /* Release the GIL during C computation */
   int ierr = 0;
   Py_BEGIN_ALLOW_THREADS ierr =
-      eval_strainrate(cells, dofs, x, u, xi, eta, epsilon, n_cells);
+      eval_strainrate(cells, dofs, x, u, xi, eta, d, n_cells);
   Py_END_ALLOW_THREADS
 
       if (ierr != 0) {
