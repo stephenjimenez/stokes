@@ -11,7 +11,11 @@ import pyvista as pv
 from numpy.typing import NDArray
 
 from stokes.fe.shape import Q9_GAUSS_POINTS, q8_shape_functions
-from stokes.rheology import interpolate_cauchy_stress, interpolate_strain_rate
+from stokes.rheology import (
+    interpolate_cauchy_stress,
+    interpolate_strain_rate,
+    tensile_strain_energy,
+)
 
 if TYPE_CHECKING:
     from stokes.config import SimulationConfig
@@ -111,9 +115,6 @@ class ParaViewWriter:
             if config.plotting.plot_effective_damage:
                 dmg_eff_nodes = 1.0 - ((1.0 - phi_nodes) ** 2 + eta_res)
                 grid.point_data["EffectiveDamage"] = dmg_eff_nodes
-                grid.cell_data["EffectiveDamage"] = np.average(
-                    dmg_eff, weights=vol, axis=1
-                )
         else:
             dmg_eff = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
 
@@ -148,6 +149,24 @@ class ParaViewWriter:
                 tensor=tau,
                 w=vol,
                 name="DeviatoricStress",
+            )
+        if config.plotting.plot_max_principal_stress:
+            half_diff = 0.5 * (sigma[..., 0] - sigma[..., 1])
+            sig1 = 0.5 * (sigma[..., 0] + sigma[..., 1]) + np.sqrt(
+                half_diff * half_diff + sigma[..., 3] ** 2
+            )
+            sig_max = np.maximum(sig1, sigma[..., 2])
+            grid.cell_data["MaxPrincipalStress"] = np.average(
+                sig_max, weights=vol, axis=1
+            )
+        if (
+            config.plotting.plot_strain_energy_density
+            and config.phase_field is not None
+            and phi_nodes is not None
+        ):
+            psi_plus = tensile_strain_energy(config=config, uvp=uvp, phi_gp=phi_gp)
+            grid.cell_data["StrainEnergyDensity"] = np.average(
+                psi_plus, weights=vol, axis=1
             )
         if config.plotting.plot_strain_rate:
             d = np.empty((config.mesh.num_cells, 9, 4), dtype=np.float64)

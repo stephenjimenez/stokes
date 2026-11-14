@@ -304,11 +304,14 @@ def test_vtu_export_effective_damage(tmp_path) -> None:
     assert vtu_file.exists()
 
     grid = pv.read(str(vtu_file))
-    # PhaseField and EffectiveDamage in point data
+    # PhaseField and EffectiveDamage in point data (not in cell data)
     assert "PhaseField" in grid.point_data
     assert "EffectiveDamage" in grid.point_data
+    assert "EffectiveDamage" not in grid.cell_data
     assert np.allclose(grid.point_data["PhaseField"], phi_nodes)
 
-    # EffectiveDamage in cell data
-    assert "EffectiveDamage" in grid.cell_data
-    assert len(grid.cell_data["EffectiveDamage"]) == mesh.num_cells
+    # MaxPrincipalStress and StrainEnergyDensity in cell data
+    assert "MaxPrincipalStress" in grid.cell_data
+    assert "StrainEnergyDensity" in grid.cell_data
+    assert len(grid.cell_data["MaxPrincipalStress"]) == mesh.num_cells
+    assert len(grid.cell_data["StrainEnergyDensity"]) == mesh.num_cells

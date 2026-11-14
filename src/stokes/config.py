@@ -63,7 +63,9 @@ class PlottingFormat(TypedDict):
     plot_cauchy_stress: NotRequired[bool]
     plot_deviatoric_stress: NotRequired[bool]
     plot_effective_damage: NotRequired[bool]
+    plot_max_principal_stress: NotRequired[bool]
     plot_phase_field: NotRequired[bool]
+    plot_strain_energy_density: NotRequired[bool]
     plot_strain_rate: NotRequired[bool]
 
 
@@ -119,7 +121,9 @@ class PlottingConfig:
     plot_cauchy_stress: bool = True
     plot_deviatoric_stress: bool = True
     plot_effective_damage: bool = True
+    plot_max_principal_stress: bool = True
     plot_phase_field: bool = True
+    plot_strain_energy_density: bool = True
     plot_strain_rate: bool = True
 
     @classmethod
@@ -136,7 +140,15 @@ class PlottingConfig:
                 "plot_effective_damage",
                 cls.plot_effective_damage,
             ),
+            plot_max_principal_stress=d.get(
+                "plot_max_principal_stress",
+                cls.plot_max_principal_stress,
+            ),
             plot_phase_field=d.get("plot_phase_field", cls.plot_phase_field),
+            plot_strain_energy_density=d.get(
+                "plot_strain_energy_density",
+                cls.plot_strain_energy_density,
+            ),
             plot_strain_rate=d.get("plot_strain_rate", cls.plot_strain_rate),
         )
 
