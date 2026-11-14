@@ -25,7 +25,7 @@ k2 = 7.24  # MPa^-1
 alpha = 0.21
 beta = 0.63
 length_scale = 10.0  # m
-max_damage = 0.97
+max_damage = 0.99
 critical_damage = 0.6
 
 [boundary_conditions]

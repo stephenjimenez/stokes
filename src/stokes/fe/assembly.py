@@ -19,7 +19,7 @@ class StokesAssembler:
     coo_to_csc_map: NDArray[np.intp]
     indptr: NDArray[np.int32]
     indices: NDArray[np.int32]
-    v_dofs: NDArray[np.int32]
+    uv_dofs: NDArray[np.int32]
     _raw_vals: NDArray[np.float64]
 
     def __init__(self, mesh: Mesh) -> None:
@@ -29,13 +29,12 @@ class StokesAssembler:
         self.n_total = n_u + n_p
 
         # build COO index arrays for [Ae (16x16), Be (4x16), Be^T (4x16 transposed)]
-        dofs = mesh.cell_dofs()
-        v_dofs = dofs[:, :16]
-        p_dofs = dofs[:, 16:]
-        r_ae = np.repeat(v_dofs[:, :, None], 16, axis=2).ravel()
-        c_ae = np.repeat(v_dofs[:, None, :], 16, axis=1).ravel()
+        uv_dofs = mesh.dofs[:, :16]
+        p_dofs = mesh.dofs[:, 16:]
+        r_ae = np.repeat(uv_dofs[:, :, None], 16, axis=2).ravel()
+        c_ae = np.repeat(uv_dofs[:, None, :], 16, axis=1).ravel()
         r_be = np.repeat(p_dofs[:, :, None], 16, axis=2).ravel()
-        c_be = np.repeat(v_dofs[:, None, :], 4, axis=1).ravel()
+        c_be = np.repeat(uv_dofs[:, None, :], 4, axis=1).ravel()
         rows = np.concatenate([r_ae, r_be, c_be])
         cols = np.concatenate([c_ae, c_be, r_be])
 
@@ -51,7 +50,7 @@ class StokesAssembler:
             unique_cols, np.arange(self.n_total + 1, dtype=np.int32)
         ).astype(np.int32)
         self.nnz = len(unique_linear)
-        self.v_dofs = v_dofs
+        self.uv_dofs = uv_dofs
 
         # preallocate buffer for [ae (256*N), -be (64*N), -be (64*N)]
         self._raw_vals = np.empty(384 * mesh.num_cells, dtype=np.float64)
@@ -80,7 +79,7 @@ class StokesAssembler:
 
         # assemble global RHS vector
         f = np.zeros(self.n_total, dtype=np.float64)
-        np.add.at(f, self.v_dofs, fe)
+        np.add.at(f, self.uv_dofs, fe)
 
         # construct CSC matrix directly from pre-verified canonical buffers (no copy)
         k = csc_matrix(
@@ -102,7 +101,7 @@ class StokesAssembler:
 
         # ensure arrays match the exact types and C-contiguity expected by PyArray_DATA
         cells = np.ascontiguousarray(self.mesh.cells, dtype=np.int32)
-        dofs = np.ascontiguousarray(self.mesh.cell_dofs(), dtype=np.int32)
+        dofs = np.ascontiguousarray(self.mesh.dofs, dtype=np.int32)
         x = np.ascontiguousarray(self.mesh.points, dtype=np.float64)
         u = np.ascontiguousarray(uvp, dtype=np.float64)
         dmg = np.ascontiguousarray(damage, dtype=np.float64)
@@ -139,12 +138,11 @@ class DamageAssembler:
         self.num_vertices = mesh.num_vertices
 
         # Map 4 corner vertices to 0-based Q4 vertex indices [0, num_vertices)
-        corner_vertices = (mesh.p_dofs - mesh.num_dofs[0]).astype(np.int32)
-        self.corner_vertices = corner_vertices
+        self.corner_vertices = (mesh.dofs[:, 16:] - mesh.num_dofs[0]).astype(np.int32)
 
         # build COO index arrays for [Ae (4x4)]
-        r_ae = np.repeat(corner_vertices[:, :, None], 4, axis=2).ravel()
-        c_ae = np.repeat(corner_vertices[:, None, :], 4, axis=1).ravel()
+        r_ae = np.repeat(self.corner_vertices[:, :, None], 4, axis=2).ravel()
+        c_ae = np.repeat(self.corner_vertices[:, None, :], 4, axis=1).ravel()
 
         # sort primarily by col, secondarily by row (exact canonical CSC order)
         linear_idx = r_ae.astype(np.intp) + c_ae.astype(np.intp) * self.num_vertices

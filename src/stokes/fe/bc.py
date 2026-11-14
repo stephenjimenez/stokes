@@ -67,8 +67,8 @@ class BoundaryConditions:
             ns_nodes = np.asarray(no_slip_nodes, dtype=np.int32)
             global_mask[2 * ns_nodes] = True
             global_mask[2 * ns_nodes + 1] = True
-        v_dofs = mesh.cell_dofs()[:, :16]
-        cell_mask = np.ascontiguousarray(global_mask[v_dofs])
+        uv_dofs = mesh.dofs[:, :16]
+        cell_mask = np.ascontiguousarray(global_mask[uv_dofs])
         return cls(cell_mask=cell_mask, global_mask=global_mask)
 
 

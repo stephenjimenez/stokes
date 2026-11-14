@@ -13,7 +13,12 @@ from stokes.config import SimulationConfig
 from stokes.fe import shape
 from stokes.fe.assembly import DamageAssembler, StokesAssembler
 from stokes.fe.bc import apply_bcs_inplace
-from stokes.rheology import damage_rate, glen_coefficient, hayhurst_driving_stress
+from stokes.rheology import (
+    damage_rate,
+    glen_coefficient,
+    hayhurst_stress,
+    interpolate_cauchy_stress,
+)
 from stokes.visualization import ParaViewWriter
 
 YEARS_TO_HOURS = 8760.0
@@ -170,8 +175,18 @@ def update_damage(
 
     dt = config.solver.time_step * 3600.0
 
-    # compute local Hayhurst stress chi of shape (num_cells, 9) at the 9 Gauss points
-    chi, skk = hayhurst_driving_stress(config=config, uvp=uvp, dmg0=dmg0)
+    # compute local Hayhurst stress
+    sigma = np.empty((config.mesh.num_cells, 9, 4), dtype=np.float64)
+    for gp, (xi, eta) in enumerate(shape.Q9_GAUSS_POINTS):
+        sigma[:, gp, :] = interpolate_cauchy_stress(
+            config=config,
+            uvp=uvp,
+            dmg=dmg0[:, gp],
+            xi=xi,
+            eta=eta,
+        )
+    chi = hayhurst_stress(config=config, sigma=sigma)
+    skk = sigma.sum(axis=2)
 
     # assemble and solve the Q4 linear system a, b
     ae, fe = damage_assembler.assemble_system(
@@ -190,8 +205,17 @@ def update_damage(
     )
     chi_bar = chi_cell_nodes @ n4_gp.T
 
+    ae, fe = damage_assembler.assemble_system(
+        chi=skk,
+        length_scale=config.damage.length_scale,
+    )
+    a, b = damage_assembler.assemble_csc(ae=ae, fe=fe)
+    skk_nodes = spsolve(a, b)
+    skk_cell_nodes = skk_nodes[corner_idx]
+    skk_bar = skk_cell_nodes @ n4_gp.T
+
     # evaluate the damage rate and advance
-    ddmg = damage_rate(config=config, chi=chi_bar, dmg0=dmg0, skk=skk)
+    ddmg = damage_rate(config=config, chi=chi_bar, dmg0=dmg0, skk=skk_bar)
     dmg = dmg0 + ddmg * dt
     dmg[dmg > config.damage.critical_damage] = config.damage.max_damage
     return dmg, chi_bar

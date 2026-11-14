@@ -10,8 +10,8 @@ import numpy as np
 import pyvista as pv
 from numpy.typing import NDArray
 
-from stokes.fe import shape
-from stokes.rheology import interpolate_stress
+from stokes.fe.shape import Q9_GAUSS_POINTS
+from stokes.rheology import interpolate_cauchy_stress, interpolate_strain_rate
 
 if TYPE_CHECKING:
     from stokes.config import SimulationConfig
@@ -55,9 +55,9 @@ class ParaViewWriter:
 
         # extract velocity field
         n = 2 * config.mesh.num_points
-        velocity_3d = np.zeros((config.mesh.num_points, 3), dtype=np.float64)
-        velocity_3d[:, 0] = uvp[0:n:2] / YEAR_TO_SECOND
-        velocity_3d[:, 1] = uvp[1:n:2] / YEAR_TO_SECOND
+        velocity = np.zeros((config.mesh.num_points, 3), dtype=np.float64)
+        velocity[:, 0] = uvp[0:n:2] / YEAR_TO_SECOND
+        velocity[:, 1] = uvp[1:n:2] / YEAR_TO_SECOND
 
         # extract pressure (and compute at midpoints)
         pressure = np.zeros(config.mesh.num_points, dtype=np.float64)
@@ -78,22 +78,22 @@ class ParaViewWriter:
         grid = pv.UnstructuredGrid(cells_with_count.ravel(), cell_types, points_3d)
 
         # save point data
-        grid.point_data["Velocity"] = velocity_3d
+        grid.point_data["Velocity"] = velocity
         grid.point_data["Pressure"] = pressure
 
-        # evaluate cell data at Gauss points
-        vol = config.mesh.gauss_point_volumes()
-        d = np.empty((config.mesh.num_cells, 3, 9), dtype=np.float64)
-        tau = np.empty((config.mesh.num_cells, 3, 9), dtype=np.float64)
-        sigma = np.empty((config.mesh.num_cells, 3, 9), dtype=np.float64)
-        for gp in range(9):
-            d[..., gp], tau[..., gp], sigma[..., gp] = interpolate_stress(
+        # evaluate Cauchy stress at Gauss points
+        sigma = np.empty((config.mesh.num_cells, 9, 4), dtype=np.float64)
+        for gp, (xi, eta) in enumerate(Q9_GAUSS_POINTS):
+            sigma[:, gp, :] = interpolate_cauchy_stress(
                 config=config,
                 uvp=uvp,
                 dmg=dmg[:, gp],
+                xi=xi,
+                eta=eta,
             )
 
         # save cell data
+        vol = config.mesh.gauss_point_volumes()
         if config.damage is not None:
             grid.cell_data["Damage"] = np.average(dmg, weights=vol, axis=1)
         if config.plotting.plot_cauchy_stress:
@@ -101,13 +101,21 @@ class ParaViewWriter:
             vtk_arr = grid.cell_data["CauchyStress"].VTKObject
             vtk_arr.SetComponentName(0, "XX")
             vtk_arr.SetComponentName(1, "YY")
-            vtk_arr.SetComponentName(2, "XY")
+            vtk_arr.SetComponentName(2, "ZZ")
+            vtk_arr.SetComponentName(3, "XY")
         if config.plotting.plot_deviatoric_stress:
+            tau = np.empty_like(sigma)
+            p = -(sigma[..., 0] + sigma[..., 1] + sigma[..., 2]) / 3.0
+            tau[..., 0] = sigma[..., 0] + p
+            tau[..., 1] = sigma[..., 1] + p
+            tau[..., 2] = 0.0
+            tau[..., 3] = sigma[..., 3]
             grid.cell_data["DeviatoricStress"] = _weighted_average(a=tau, w=vol)
             vtk_arr = grid.cell_data["DeviatoricStress"].VTKObject
             vtk_arr.SetComponentName(0, "XX")
             vtk_arr.SetComponentName(1, "YY")
-            vtk_arr.SetComponentName(2, "XY")
+            vtk_arr.SetComponentName(2, "ZZ")
+            vtk_arr.SetComponentName(3, "XY")
         if config.plotting.plot_hayhurst_stress:
             if config.damage is None:
                 print(
@@ -117,11 +125,20 @@ class ParaViewWriter:
             else:
                 grid.cell_data["HayhurstStress"] = np.average(chi, weights=vol, axis=1)
         if config.plotting.plot_strain_rate:
+            d = np.empty((config.mesh.num_cells, 9, 4), dtype=np.float64)
+            for gp, (xi, eta) in enumerate(Q9_GAUSS_POINTS):
+                d[:, gp, :] = interpolate_strain_rate(
+                    config=config,
+                    uvp=uvp,
+                    xi=xi,
+                    eta=eta,
+                )
             grid.cell_data["StrainRate"] = _weighted_average(a=d, w=vol)
             vtk_arr = grid.cell_data["StrainRate"].VTKObject
             vtk_arr.SetComponentName(0, "XX")
             vtk_arr.SetComponentName(1, "YY")
-            vtk_arr.SetComponentName(2, "XY")
+            vtk_arr.SetComponentName(2, "ZZ")
+            vtk_arr.SetComponentName(3, "XY")
 
         # save the VTU file
         vtu_filename = f"{self.base_name}_{len(self.timesteps):05d}.vtu"
@@ -162,4 +179,4 @@ def _weighted_average(
     a: NDArray[np.float64],
     w: NDArray[np.float64],
 ) -> NDArray[np.float64]:
-    return np.einsum("ecq,eq->ec", a, w) / w.sum(axis=1, keepdims=True)
+    return np.einsum("eqc,eq->ec", a, w) / w.sum(axis=1, keepdims=True)

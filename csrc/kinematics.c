@@ -7,7 +7,7 @@
 /* Evaluate strain rates a Gauss point. */
 int eval_strainrate(const int (*cells)[8], const int (*dofs)[20],
                     const double (*x)[2], const double* u, const double xi,
-                    const double eta, double (*d)[3], int n_cells) {
+                    const double eta, double (*d)[4], int n_cells) {
   double dndxi[2][8], dndx[2][8];
   double b[3][16];
   double xe[8][2], ue[16];
@@ -72,7 +72,8 @@ int eval_strainrate(const int (*cells)[8], const int (*dofs)[20],
     }
     d[c][0] = d11;
     d[c][1] = d22;
-    d[c][2] = g12;
+    d[c][2] = 0.0;
+    d[c][3] = g12;
   }
 
   return 0;

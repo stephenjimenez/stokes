@@ -18,30 +18,32 @@ class Mesh:
     """Container for the finite element mesh."""
 
     cells: NDArray[np.int32]
+    dofs: NDArray[np.int32]
     points: NDArray[np.float64]
-    p_dofs: NDArray[np.int32]
-    u_dofs: NDArray[np.int32]
-    v_dofs: NDArray[np.int32]
     vertices: NDArray[np.int32]
 
     def __init__(self, cells: NDArray[np.int32], points: NDArray[np.float64]) -> None:
         """Initialize the mesh."""
         self.cells = np.ascontiguousarray(cells, dtype=np.int32)
         self.points = np.ascontiguousarray(points, dtype=np.float64)
+
+        # pack degrees of freedom
+        self.dofs = np.empty((self.num_cells, 20), dtype=np.int32)
         u, idx = np.unique(self.cells[:, :4], return_inverse=True)
-        self.p_dofs = np.ascontiguousarray(
+        p_dofs = np.ascontiguousarray(
             idx.reshape(self.cells.shape[0], 4) + 2 * len(points),
             dtype=np.int32,
         )
-        self.u_dofs = np.ascontiguousarray(2 * self.cells, dtype=np.int32)
-        self.v_dofs = np.ascontiguousarray(2 * self.cells + 1, dtype=np.int32)
+        u_dofs = np.ascontiguousarray(2 * self.cells, dtype=np.int32)
+        v_dofs = np.ascontiguousarray(2 * self.cells + 1, dtype=np.int32)
+        self.dofs[:, 0:16:2] = u_dofs
+        self.dofs[:, 1:16:2] = v_dofs
+        self.dofs[:, 16:] = p_dofs
         self.vertices = np.ascontiguousarray(u, dtype=np.int32)
 
         # disable overwriting of cell topology
         self.cells.setflags(write=False)
-        self.p_dofs.setflags(write=False)
-        self.u_dofs.setflags(write=False)
-        self.v_dofs.setflags(write=False)
+        self.dofs.setflags(write=False)
         self.vertices.setflags(write=False)
 
     def cell_areas(self) -> NDArray[np.float64]:
@@ -53,14 +55,6 @@ class Mesh:
         u = c - a
         v = d - b
         return 0.5 * (u[:, 0] * v[:, 1] - v[:, 0] * u[:, 1])
-
-    def cell_dofs(self) -> NDArray[np.int32]:
-        """Construct an array of cell degrees of freedom."""
-        dofs = np.empty((self.num_cells, 20), dtype=np.int32)
-        dofs[:, 0:16:2] = self.u_dofs
-        dofs[:, 1:16:2] = self.v_dofs
-        dofs[:, 16:] = self.p_dofs
-        return dofs
 
     def find_boundaries(self) -> NDArray[np.int32]:
         """Construct an array of all cell edges that are external boundaries."""

@@ -19,12 +19,12 @@ def deviatoric_stress(
     d: NDArray[np.float64],
 ) -> NDArray[np.float64]:
     """Compute the deviatoric stress components."""
-    b_glen = glen_coefficient(config.rheology.temperature)
-    mu = glen_viscosity(b_glen=b_glen, d=d)
+    mu = glen_viscosity(temperature=config.rheology.temperature, d=d)
     tau = np.empty_like(d)
     tau[:, 0] = 2.0 * mu * d[:, 0]
     tau[:, 1] = 2.0 * mu * d[:, 1]
-    tau[:, 2] = mu * d[:, 2]
+    tau[:, 2] = 2.0 * mu * d[:, 2]
+    tau[:, 3] = mu * d[:, 3]
     return tau
 
 
@@ -38,94 +38,76 @@ def glen_coefficient(temperature: float = 263.15) -> float:
     return B0 * exp(T0 / temperature - C / (T_REF - temperature) ** K)
 
 
-def glen_viscosity(b_glen: float, d: NDArray[np.float64]) -> float:
+def glen_viscosity(temperature: float, d: NDArray[np.float64]) -> float:
     """Compute Glen viscosity."""
     d11 = d[..., 0]
     d22 = d[..., 1]
-    d12 = 0.5 * d[..., 2]
+    d12 = 0.5 * d[..., 3]
     deq2 = 0.5 * (d11 * d11 + d22 * d22) + d12 * d12
-    return 0.5 * b_glen / np.cbrt(deq2 + MIN_DEQ2)
+    return 0.5 * glen_coefficient(temperature) / np.cbrt(deq2 + MIN_DEQ2)
 
 
-def hayhurst_driving_stress(
+def hayhurst_stress(
     config: SimulationConfig,
-    uvp: NDArray[np.float64],
-    dmg0: NDArray[np.float64],
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Evaluate Hayhurst driving stress (in MPa) at the 9 Gauss points."""
-    if config.damage is None:
-        chi_zeros = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
-        return chi_zeros, np.zeros_like(chi_zeros)
-
-    chi = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
-    skk = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
-
+    sigma: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    """Evaluate Hayhurst driving stress."""
     alpha = config.damage.alpha
     beta = config.damage.beta
-
-    for gp in range(9):
-        xi, eta = shape.Q9_GAUSS_POINTS[gp]
-        _, tau, sigma = interpolate_stress(
-            config=config,
-            uvp=uvp,
-            dmg=dmg0[:, gp],
-            xi=xi,
-            eta=eta,
-        )
-        t11 = tau[:, 0]
-        t22 = tau[:, 1]
-        t12 = tau[:, 2]
-        s11 = sigma[:, 0]
-        s22 = sigma[:, 1]
-        s12 = sigma[:, 2]
-        p = t11 - s11
-        s33 = -p
-        j2 = 0.5 * (t11 * t11 + t22 * t22) + t12 * t12
-        mises = np.sqrt(3.0 * j2)
-        tmp = 0.5 * (s11 - s22)
-        skk_gp = -3.0 * p
-        sig1 = np.fmax(0.5 * (s11 + s22) + np.sqrt(tmp * tmp + s12 * s12), s33)
-        chi[:, gp] = alpha * sig1 + beta * mises + (1.0 - alpha - beta) * skk_gp
-        skk[:, gp] = skk_gp
-
-    return chi, skk
+    s11 = sigma[..., 0]
+    s22 = sigma[..., 1]
+    s33 = sigma[..., 2]
+    s12 = sigma[..., 3]
+    skk_gp = s11 + s22 + s33
+    p = -skk_gp / 3.0
+    t11 = s11 + p
+    t22 = s22 + p
+    t12 = s12
+    j2 = 0.5 * (t11 * t11 + t22 * t22) + t12 * t12
+    mises = np.sqrt(3.0 * j2)
+    tmp = 0.5 * (s11 - s22)
+    sig1 = np.fmax(0.5 * (s11 + s22) + np.sqrt(tmp * tmp + s12 * s12), s33)
+    return alpha * sig1 + beta * mises + (1.0 - alpha - beta) * skk_gp
 
 
-def interpolate_stress(
+def interpolate_cauchy_stress(
     config: SimulationConfig,
     uvp: NDArray[np.float64],
     dmg: NDArray[np.float64],
     xi: float = 0.0,
     eta: float = 0.0,
-) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
-    """Interpolate strain rate, true deviatoric stresses, and true Cauchy stresses at
-    isoparametric coordinates (xi, eta).
-    """
-    # evaluate strain rate
-    cells = np.ascontiguousarray(config.mesh.cells, dtype=np.int32)
-    dofs = np.ascontiguousarray(config.mesh.cell_dofs(), dtype=np.int32)
-    x = np.ascontiguousarray(config.mesh.points, dtype=np.float64)
-    u = np.ascontiguousarray(uvp, dtype=np.float64)
-    d = np.empty((config.mesh.num_cells, 3), dtype=np.float64)
-    eval_strainrate(cells, dofs, x, u, xi, eta, d)
-
-    # interpolate true deviatoric stress and pressure
+) -> NDArray[np.float64]:
+    """Interpolate the true Cauchy stress at isoparametric coordinates (xi, eta)."""
+    d = interpolate_strain_rate(config=config, uvp=uvp, xi=xi, eta=eta)
     tau = (1.0 - dmg)[:, None] * deviatoric_stress(config=config, d=d)
-    p = shape.q4_shape_functions(xi, eta) @ uvp[dofs[:, 16:]].T
-
-    # zero out the stress in failed elements
-    if config.damage is not None:
-        i = dmg >= config.damage.critical_damage
-        tau[i] = 0.0
-        p[i] = 0.0
-
-    # compute true Cauchy stress
+    p = shape.q4_shape_functions(xi, eta) @ uvp[config.mesh.dofs[:, 16:]].T
     sigma = np.empty_like(tau)
     sigma[:, 0] = tau[:, 0] - p
     sigma[:, 1] = tau[:, 1] - p
-    sigma[:, 2] = tau[:, 2]
+    sigma[:, 2] = tau[:, 2] - p
+    sigma[:, 3] = tau[:, 3]
 
-    return d, tau, sigma
+    # zero out the stress in failed elements
+    if config.damage is not None:
+        sigma[dmg >= config.damage.critical_damage] = 0.0
+
+    return sigma
+
+
+def interpolate_strain_rate(
+    config: SimulationConfig,
+    uvp: NDArray[np.float64],
+    xi: float = 0.0,
+    eta: float = 0.0,
+) -> NDArray[np.float64]:
+    """Interpolate the strain rate at isoparametric coordinates (xi, eta)."""
+    cells = np.ascontiguousarray(config.mesh.cells, dtype=np.int32)
+    dofs = np.ascontiguousarray(config.mesh.dofs, dtype=np.int32)
+    x = np.ascontiguousarray(config.mesh.points, dtype=np.float64)
+    u = np.ascontiguousarray(uvp, dtype=np.float64)
+    d = np.empty((config.mesh.num_cells, 4), dtype=np.float64)
+    eval_strainrate(cells, dofs, x, u, xi, eta, d)
+    return d
 
 
 def damage_rate(
