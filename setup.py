@@ -3,8 +3,8 @@
 import numpy as np
 from setuptools import Extension, setup
 
-# Compiler/linker flags (adjust for OpenMP if needed)
-extra_compile_args = ["-O3", "-std=c99"]
+# Compiler/linker flags
+extra_compile_args = ["-O3", "-std=c99", "-Wall", "-Wextra"]
 extra_link_args = []
 
 ext = Extension(

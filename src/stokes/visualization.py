@@ -10,7 +10,7 @@ import numpy as np
 import pyvista as pv
 from numpy.typing import NDArray
 
-from stokes.fe.shape import Q9_GAUSS_POINTS
+from stokes.fe.shape import Q9_GAUSS_POINTS, q8_shape_functions
 from stokes.rheology import interpolate_cauchy_stress, interpolate_strain_rate
 
 if TYPE_CHECKING:
@@ -57,11 +57,9 @@ class ParaViewWriter:
         config: SimulationConfig,
         time: float,
         uvp: NDArray[np.float64],
-        dmg: NDArray[np.float64],
-        chi: NDArray[np.float64],
+        phi_nodes: NDArray[np.float64] | None = None,
     ) -> Path:
         """Write a single time step to a .vtu file and update the master .pvd file."""
-
         print("\nPlotting")
 
         # extract 3D points
@@ -96,21 +94,32 @@ class ParaViewWriter:
         grid.point_data["Velocity"] = velocity
         grid.point_data["Pressure"] = pressure
 
+        # evaluate effective degradation at Gauss points
+        if config.phase_field is not None and phi_nodes is not None:
+            grid.point_data["PhaseField"] = phi_nodes
+            n8_gp = np.array(
+                [q8_shape_functions(xi, eta) for xi, eta in Q9_GAUSS_POINTS],
+                dtype=np.float64,
+            )
+            phi_gp = phi_nodes[config.mesh.cells] @ n8_gp.T
+            eta_res = config.phase_field.residual_stiffness
+            dmg_eff = 1.0 - ((1.0 - phi_gp) ** 2 + eta_res)
+        else:
+            dmg_eff = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
+
         # evaluate Cauchy stress at Gauss points
         sigma = np.empty((config.mesh.num_cells, 9, 4), dtype=np.float64)
         for gp, (xi, eta) in enumerate(Q9_GAUSS_POINTS):
             sigma[:, gp, :] = interpolate_cauchy_stress(
                 config=config,
                 uvp=uvp,
-                dmg=dmg[:, gp],
+                dmg=dmg_eff[:, gp],
                 xi=xi,
                 eta=eta,
             )
 
         # save cell data
         vol = config.mesh.gauss_point_volumes()
-        if config.damage is not None:
-            grid.cell_data["Damage"] = np.average(dmg, weights=vol, axis=1)
         if config.plotting.plot_cauchy_stress:
             self._save_weighted_tensor(
                 grid=grid,
@@ -131,14 +140,6 @@ class ParaViewWriter:
                 w=vol,
                 name="DeviatoricStress",
             )
-        if config.plotting.plot_hayhurst_stress:
-            if config.damage is None:
-                print(
-                    "- No Hayhurst stress parameters were provided; "
-                    "cannot plot this variable."
-                )
-            else:
-                grid.cell_data["HayhurstStress"] = np.average(chi, weights=vol, axis=1)
         if config.plotting.plot_strain_rate:
             d = np.empty((config.mesh.num_cells, 9, 4), dtype=np.float64)
             for gp, (xi, eta) in enumerate(Q9_GAUSS_POINTS):

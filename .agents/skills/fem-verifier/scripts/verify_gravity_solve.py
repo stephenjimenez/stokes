@@ -31,14 +31,14 @@ def run_benchmark() -> bool:
 
     config = SimulationConfig(
         bc=bc,
-        damage=None,
         mesh=mesh,
+        phase_field=None,
         plotting=PlottingConfig(output_interval=100),
         rheology=RheologyConfig(gravity=True, rho_ice=917.0, temperature=263.15),
         solver=SolverConfig(tolerance=1e-5, max_iterations=20, num_steps=1),
     )
 
-    assembler = StokesAssembler(config.mesh)
+    stokes_assembler = StokesAssembler(config.mesh)
     b_glen = glen_coefficient(config.rheology.temperature)
     body_force = config.rheology.body_force()
     dmg0 = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
@@ -47,7 +47,7 @@ def run_benchmark() -> bool:
     print("Running gravity-driven flow benchmark...")
     uvp, status = solve_stokes(
         config=config,
-        assembler=assembler,
+        stokes_assembler=stokes_assembler,
         uvp0=uvp0,
         dmg0=dmg0,
         b_glen=b_glen,
@@ -63,7 +63,7 @@ def run_benchmark() -> bool:
     p_computed = uvp[n_vel:]
 
     # 1. Algebraic residual check: ||K * uvp - f|| / ||f||
-    ae, be, fe = assembler.assemble_system(
+    ae, be, fe = stokes_assembler.assemble_system(
         uvp=uvp,
         b_glen=b_glen,
         damage=dmg0,
@@ -71,7 +71,7 @@ def run_benchmark() -> bool:
         alpha=0.0,
     )
     apply_bcs_inplace(ae=ae, be=be, fe=fe, bc=config.bc)
-    k_mat, f_vec = assembler.assemble_csc(ae=ae, be=be, fe=fe)
+    k_mat, f_vec = stokes_assembler.assemble_csc(ae=ae, be=be, fe=fe)
     res = k_mat @ uvp - f_vec
     rel_res = float(np.linalg.norm(res) / np.linalg.norm(f_vec))
     print(f"Algebraic System Relative Residual ||K*uvp - f|| / ||f||: {rel_res:e}")

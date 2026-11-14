@@ -8,6 +8,7 @@
 
 /* Wrapper for assemble_stokes */
 static PyObject* py_assemble_stokes(PyObject* self, PyObject* args) {
+  (void)self;
   PyArrayObject *py_cells, *py_dofs, *py_x, *py_u, *py_bf, *py_dmg;
   PyArrayObject *py_ae, *py_be, *py_fe;
   double b_glen, newton_alpha;
@@ -36,11 +37,12 @@ static PyObject* py_assemble_stokes(PyObject* self, PyObject* args) {
 
   /* Release the Python Global Interpreter Lock (GIL) during C computation */
   int ierr = 0;
-  Py_BEGIN_ALLOW_THREADS ierr = assemble_stokes(
-      cells, dofs, x, u, dmg, bf, b_glen, newton_alpha, ae, be, fe, n_cells);
+  Py_BEGIN_ALLOW_THREADS ierr =
+      assemble_stokes(cells, dofs, x, u, dmg, bf, b_glen, newton_alpha, ae, be,
+                      fe, n_cells);
   Py_END_ALLOW_THREADS
 
-      if (ierr != 0) {
+  if (ierr != 0) {
     PyErr_SetString(
         PyExc_RuntimeError,
         "Stokes assembly failed: negative or zero Jacobian detected.");
@@ -52,6 +54,7 @@ static PyObject* py_assemble_stokes(PyObject* self, PyObject* args) {
 
 /* Wrapper for eval_strainrate */
 static PyObject* py_eval_strainrate(PyObject* self, PyObject* args) {
+  (void)self;
   PyArrayObject *py_cells, *py_dofs, *py_x, *py_u, *py_d;
   double xi, eta;
 
@@ -69,15 +72,16 @@ static PyObject* py_eval_strainrate(PyObject* self, PyObject* args) {
   const int (*dofs)[20] = (const int (*)[20])PyArray_DATA(py_dofs);
   const double (*x)[2] = (const double (*)[2])PyArray_DATA(py_x);
   const double* u = (const double*)PyArray_DATA(py_u);
+
   double (*d)[4] = (double (*)[4])PyArray_DATA(py_d);
 
-  /* Release the GIL during C computation */
+  /* Release the Python Global Interpreter Lock (GIL) during C computation */
   int ierr = 0;
   Py_BEGIN_ALLOW_THREADS ierr =
       eval_strainrate(cells, dofs, x, u, xi, eta, d, n_cells);
   Py_END_ALLOW_THREADS
 
-      if (ierr != 0) {
+  if (ierr != 0) {
     PyErr_SetString(
         PyExc_RuntimeError,
         "Strain rate evaluation failed: negative or zero Jacobian detected.");
@@ -87,16 +91,17 @@ static PyObject* py_eval_strainrate(PyObject* self, PyObject* args) {
   Py_RETURN_NONE;
 }
 
-/* Wrapper for assemble_damage */
-static PyObject* py_assemble_damage(PyObject* self, PyObject* args) {
-  PyArrayObject *py_cells, *py_x, *py_chi;
+/* Wrapper for assemble_phase_field */
+static PyObject* py_assemble_phase_field(PyObject* self, PyObject* args) {
+  (void)self;
+  PyArrayObject *py_cells, *py_x, *py_history;
   PyArrayObject *py_ae, *py_fe;
-  double length_scale;
+  double gc, length_scale;
 
-  if (!PyArg_ParseTuple(args, "O!O!O!dO!O!", &PyArray_Type, &py_cells,
-                        &PyArray_Type, &py_x, &PyArray_Type, &py_chi,
-                        &length_scale, &PyArray_Type, &py_ae, &PyArray_Type,
-                        &py_fe)) {
+  if (!PyArg_ParseTuple(args, "O!O!O!ddO!O!", &PyArray_Type, &py_cells,
+                        &PyArray_Type, &py_x, &PyArray_Type, &py_history,
+                        &gc, &length_scale, &PyArray_Type, &py_ae,
+                        &PyArray_Type, &py_fe)) {
     return NULL;
   }
 
@@ -105,21 +110,19 @@ static PyObject* py_assemble_damage(PyObject* self, PyObject* args) {
   /* Extract direct raw C pointers from NumPy arrays (zero-copy) */
   const int (*cells)[8] = (const int (*)[8])PyArray_DATA(py_cells);
   const double (*x)[2] = (const double (*)[2])PyArray_DATA(py_x);
-  const double (*chi)[9] = (const double (*)[9])PyArray_DATA(py_chi);
+  const double (*history)[9] = (const double (*)[9])PyArray_DATA(py_history);
 
-  double (*ae)[4][4] = (double (*)[4][4])PyArray_DATA(py_ae);
-  double (*fe)[4] = (double (*)[4])PyArray_DATA(py_fe);
+  double (*ae)[8][8] = (double (*)[8][8])PyArray_DATA(py_ae);
+  double (*fe)[8] = (double (*)[8])PyArray_DATA(py_fe);
 
-  /* Release the Python Global Interpreter Lock (GIL) during C computation */
-  int ierr = 0;
-  Py_BEGIN_ALLOW_THREADS ierr =
-      assemble_damage(cells, x, chi, length_scale, ae, fe, n_cells);
-  Py_END_ALLOW_THREADS
+  /* Call without releasing GIL as specified */
+  int ierr = assemble_phase_field(n_cells, cells, x, history, gc, length_scale,
+                                  ae, fe);
 
-      if (ierr != 0) {
+  if (ierr != 0) {
     PyErr_SetString(
         PyExc_RuntimeError,
-        "Damage assembly failed: negative or zero Jacobian detected.");
+        "Phase field assembly failed: negative or zero Jacobian detected.");
     return NULL;
   }
 
@@ -129,16 +132,23 @@ static PyObject* py_assemble_damage(PyObject* self, PyObject* args) {
 static PyMethodDef CoreMethods[] = {
     {"assemble_stokes", py_assemble_stokes, METH_VARARGS,
      "Assembles 2D Stokes element matrices in parallel C."},
-    {"assemble_damage", py_assemble_damage, METH_VARARGS,
-     "Assembles 2D Q4 Helmholtz damage element matrices in parallel C."},
+    {"assemble_phase_field", py_assemble_phase_field, METH_VARARGS,
+     "Assembles 2D Q8 phase field element matrices in parallel C."},
     {"eval_strainrate", py_eval_strainrate, METH_VARARGS,
      "Evaluates 2D strain rate tensor across cells at reference coordinates "
      "(xi, eta)."},
     {NULL, NULL, 0, NULL}};
 
-static struct PyModuleDef coremodule = {PyModuleDef_HEAD_INIT, "_core",
-                                        "Compiled Stokes FE kernels", -1,
-                                        CoreMethods};
+static struct PyModuleDef coremodule = {
+    PyModuleDef_HEAD_INIT,
+    "_core",
+    "Compiled Stokes FE kernels",
+    -1,
+    CoreMethods,
+    NULL,
+    NULL,
+    NULL,
+    NULL};
 
 PyMODINIT_FUNC PyInit__core(void) {
   import_array(); /* Required by NumPy C-API */

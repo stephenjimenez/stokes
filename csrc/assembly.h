@@ -26,11 +26,13 @@ int assemble_stokes_cell(const double x[8][2], const double u[16],
                          const double b_glen, const double newton_alpha,
                          double ae[16][16], double be[4][16], double fe[16]);
 
-int assemble_damage(const int (*cells)[8], const double (*x)[2],
-                    const double (*chi)[9], double length_scale,
-                    double (*ae)[4][4], double (*fe)[4], int n_cells);
+int assemble_phase_field(int n_cells, const int (*cells)[8],
+                         const double (*x)[2], const double (*history)[9],
+                         double gc, double length_scale,
+                         double (*ae)[8][8], double (*fe)[8]);
 
-int assemble_damage_cell(const double x[8][2], const double chi[9],
-                         double length_scale, double ae[4][4], double fe[4]);
+int assemble_phase_field_cell(const double x[8][2], const double history[9],
+                              double gc, double length_scale,
+                              double ae[8][8], double fe[8]);
 
 #endif

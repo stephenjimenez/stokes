@@ -11,13 +11,12 @@ from scipy.sparse.linalg import spsolve
 
 from stokes.config import SimulationConfig
 from stokes.fe import shape
-from stokes.fe.assembly import DamageAssembler, StokesAssembler
-from stokes.fe.bc import apply_bcs_inplace
+from stokes.fe.assembly import PhaseFieldAssembler, StokesAssembler
+from stokes.fe.bc import BoundaryConditions, apply_bcs_inplace
+from stokes.fe.mesh import Mesh
 from stokes.rheology import (
-    damage_rate,
     glen_coefficient,
-    hayhurst_stress,
-    interpolate_cauchy_stress,
+    tensile_strain_energy,
 )
 from stokes.visualization import ParaViewWriter
 
@@ -46,25 +45,43 @@ def execute(config: SimulationConfig) -> None:
     b_glen = glen_coefficient(config.rheology.temperature)
     body_force = config.rheology.body_force()
     stokes_assembler = StokesAssembler(config.mesh)
-    damage_assembler = DamageAssembler(config.mesh)
+    pf_assembler = (
+        PhaseFieldAssembler(config.mesh) if config.phase_field is not None else None
+    )
     writer = ParaViewWriter(output_dir=Path.cwd() / "output", base_name="stokes")
 
-    # initial damage state
-    dmg0 = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
+    # initial phase-field and history states
+    phi_nodes = np.zeros(config.mesh.num_points, dtype=np.float64)
+    history = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
 
     # initial guess
     uvp0 = np.zeros(sum(config.mesh.num_dofs), dtype=np.float64)
 
+    n8_gp = np.array(
+        [shape.q8_shape_functions(xi, eta) for xi, eta in shape.Q9_GAUSS_POINTS],
+        dtype=np.float64,
+    )
+
     # begin time stepping
     for step in range(config.solver.num_steps + 1):
         print(f"\n## Step {step:d} (t={t:g} hours)", flush=True)
+
+        if config.phase_field is not None:
+            phi_cell = phi_nodes[config.mesh.cells]
+            phi_gp = phi_cell @ n8_gp.T
+            eta_res = config.phase_field.residual_stiffness
+            g_phi = (1.0 - phi_gp) ** 2 + eta_res
+            dmg_eff = 1.0 - g_phi
+        else:
+            phi_gp = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
+            dmg_eff = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
 
         # solve the Stokes problem
         uvp, status = solve_stokes(
             config=config,
             stokes_assembler=stokes_assembler,
             uvp0=uvp0,
-            dmg0=dmg0,
+            dmg0=dmg_eff,
             b_glen=b_glen,
             body_force=body_force,
         )
@@ -72,17 +89,53 @@ def execute(config: SimulationConfig) -> None:
             msg = "Stokes flow did not converge."
             raise RuntimeError(msg)
 
-        # update the damage variable
-        dmg, chi_bar = update_damage(
-            config=config,
-            uvp=uvp,
-            dmg0=dmg0,
-            damage_assembler=damage_assembler,
-        )
+        # update the phase-field variable
+        if config.phase_field is not None and pf_assembler is not None:
+            psi_plus = tensile_strain_energy(config=config, uvp=uvp, phi_gp=phi_gp)
+            np.maximum(history, psi_plus, out=history)
+            ae, fe = pf_assembler.assemble_system(
+                history=history,
+                gc=config.phase_field.gc,
+                length_scale=config.phase_field.length_scale,
+            )
+            a_mat, f_vec = pf_assembler.assemble_csc(ae=ae, fe=fe)
+            phi_nodes = spsolve(a_mat, f_vec)
+            phi_nodes = np.clip(phi_nodes, 0.0, 1.0)
+
+            # check erosion threshold
+            if config.phase_field.erosion_threshold is not None:
+                phi_cell = phi_nodes[config.mesh.cells]
+                phi_gp = phi_cell @ n8_gp.T
+                bar_phi_e = np.mean(phi_gp, axis=1)
+                eroded = bar_phi_e >= config.phase_field.erosion_threshold
+                if np.any(eroded) and not np.all(eroded):
+                    keep = ~eroded
+                    surviving_cells = config.mesh.cells[keep]
+                    used_nodes, new_cells_flat = np.unique(
+                        surviving_cells, return_inverse=True
+                    )
+                    new_cells = new_cells_flat.reshape(surviving_cells.shape).astype(
+                        np.int32
+                    )
+                    new_points = config.mesh.points[used_nodes]
+                    config.mesh = Mesh(cells=new_cells, points=new_points)
+                    config.bc = BoundaryConditions.free_slip_bc(
+                        mesh=config.mesh, edges=config.bc_edges
+                    )
+                    stokes_assembler = StokesAssembler(config.mesh)
+                    pf_assembler = PhaseFieldAssembler(config.mesh)
+                    history = history[keep]
+                    phi_nodes = phi_nodes[used_nodes]
+                    uvp0 = np.zeros(sum(config.mesh.num_dofs), dtype=np.float64)
 
         # generate plot file
         if step % config.plotting.output_interval == 0:
-            writer.write_step(config=config, time=t, uvp=uvp, dmg=dmg, chi=chi_bar)
+            writer.write_step(
+                config=config,
+                time=t,
+                uvp=uvp,
+                phi_nodes=phi_nodes if config.phase_field is not None else None,
+            )
 
         # exit loop if we're at the last step
         if step == config.solver.num_steps:
@@ -97,7 +150,6 @@ def execute(config: SimulationConfig) -> None:
         # update time and solution
         t += config.solver.time_step
         uvp0 = uvp
-        dmg0 = dmg
 
 
 def solve_stokes(
@@ -160,62 +212,36 @@ def solve_stokes(
     return uvp, SolverStatus.MAX_ITERATIONS
 
 
-def update_damage(
+def update_phase_field(
     config: SimulationConfig,
     uvp: NDArray[np.float64],
-    dmg0: NDArray[np.float64],
-    damage_assembler: DamageAssembler | None = None,
+    phi_nodes: NDArray[np.float64],
+    history: NDArray[np.float64],
+    pf_assembler: PhaseFieldAssembler | None = None,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Update the damage variable using implicit gradient regularization."""
-    if config.damage is None:
-        return dmg0, np.zeros_like(dmg0)
+    """Update phase field and history variable."""
+    if config.phase_field is None:
+        return phi_nodes, history
 
-    if damage_assembler is None:
-        damage_assembler = DamageAssembler(config.mesh)
+    if pf_assembler is None:
+        pf_assembler = PhaseFieldAssembler(config.mesh)
 
-    dt = config.solver.time_step * 3600.0
-
-    # compute local Hayhurst stress
-    sigma = np.empty((config.mesh.num_cells, 9, 4), dtype=np.float64)
-    for gp, (xi, eta) in enumerate(shape.Q9_GAUSS_POINTS):
-        sigma[:, gp, :] = interpolate_cauchy_stress(
-            config=config,
-            uvp=uvp,
-            dmg=dmg0[:, gp],
-            xi=xi,
-            eta=eta,
-        )
-    chi = hayhurst_stress(config=config, sigma=sigma)
-    skk = sigma.sum(axis=2)
-
-    # assemble and solve the Q4 linear system a, b
-    ae, fe = damage_assembler.assemble_system(
-        chi=chi,
-        length_scale=config.damage.length_scale,
-    )
-    a, b = damage_assembler.assemble_csc(ae=ae, fe=fe)
-    chi_nodes = spsolve(a, b)
-
-    # interpolate chi_nodes from corner nodes back to the 9 Gauss points
-    corner_idx = damage_assembler.corner_vertices
-    chi_cell_nodes = chi_nodes[corner_idx]
-    n4_gp = np.array(
-        [shape.q4_shape_functions(xi, eta) for xi, eta in shape.Q9_GAUSS_POINTS],
+    n8_gp = np.array(
+        [shape.q8_shape_functions(xi, eta) for xi, eta in shape.Q9_GAUSS_POINTS],
         dtype=np.float64,
     )
-    chi_bar = chi_cell_nodes @ n4_gp.T
+    phi_cell = phi_nodes[config.mesh.cells]
+    phi_gp = phi_cell @ n8_gp.T
 
-    ae, fe = damage_assembler.assemble_system(
-        chi=skk,
-        length_scale=config.damage.length_scale,
+    psi_plus = tensile_strain_energy(config=config, uvp=uvp, phi_gp=phi_gp)
+    history = np.maximum(history, psi_plus)
+
+    ae, fe = pf_assembler.assemble_system(
+        history=history,
+        gc=config.phase_field.gc,
+        length_scale=config.phase_field.length_scale,
     )
-    a, b = damage_assembler.assemble_csc(ae=ae, fe=fe)
-    skk_nodes = spsolve(a, b)
-    skk_cell_nodes = skk_nodes[corner_idx]
-    skk_bar = skk_cell_nodes @ n4_gp.T
-
-    # evaluate the damage rate and advance
-    ddmg = damage_rate(config=config, chi=chi_bar, dmg0=dmg0, skk=skk_bar)
-    dmg = dmg0 + ddmg * dt
-    dmg[dmg > config.damage.critical_damage] = config.damage.max_damage
-    return dmg, chi_bar
+    a, b = pf_assembler.assemble_csc(ae=ae, fe=fe)
+    phi_nodes = spsolve(a, b)
+    phi_nodes = np.clip(phi_nodes, 0.0, 1.0)
+    return phi_nodes, history

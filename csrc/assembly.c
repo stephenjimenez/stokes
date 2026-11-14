@@ -152,10 +152,11 @@ int assemble_stokes_cell(const double x[8][2], const double u[16],
   return 0;
 }
 
-/* Assemble the Q4 Helmholtz damage system of equations. */
-int assemble_damage(const int (*cells)[8], const double (*x)[2],
-                    const double (*chi)[9], double length_scale,
-                    double (*ae)[4][4], double (*fe)[4], int n_cells) {
+/* Assemble the Q8 phase field system of equations. */
+int assemble_phase_field(int n_cells, const int (*cells)[8],
+                         const double (*x)[2], const double (*history)[9],
+                         double gc, double length_scale,
+                         double (*ae)[8][8], double (*fe)[8]) {
   int global_err = 0;
   for (int i = 0; i < n_cells; ++i) {
     double xe[8][2];
@@ -164,8 +165,8 @@ int assemble_damage(const int (*cells)[8], const double (*x)[2],
       xe[j][0] = x[cells[i][j]][0];
       xe[j][1] = x[cells[i][j]][1];
     }
-    int local_err =
-        assemble_damage_cell(xe, chi[i], length_scale, ae[i], fe[i]);
+    int local_err = assemble_phase_field_cell(xe, history[i], gc, length_scale,
+                                              ae[i], fe[i]);
     if (local_err != 0) {
       global_err = local_err;
     }
@@ -173,18 +174,19 @@ int assemble_damage(const int (*cells)[8], const double (*x)[2],
   return global_err;
 }
 
-/* Assemble Q4 Helmholtz matrices for a single element. */
-int assemble_damage_cell(const double x[8][2], const double chi[9],
-                         double length_scale, double ae[4][4], double fe[4]) {
-  double n4[4];
-  double dn4dxi[2][4], dn4dx[2][4];
-  double dndxi[2][8];
+/* Assemble Q8 phase field matrices for a single element. */
+int assemble_phase_field_cell(const double x[8][2], const double history[9],
+                              double gc, double length_scale,
+                              double ae[8][8], double fe[8]) {
+  double n8[8];
+  double dndxi[2][8], dndx[2][8];
   double jac[2][2], ijac[2][2];
-  const double c = 0.125 * length_scale * length_scale;
+  const double c_stiff = gc * length_scale;
+  const double gc_over_ell = gc / length_scale;
 
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < 8; ++i) {
     fe[i] = 0.0;
-    for (int j = 0; j < 4; ++j) {
+    for (int j = 0; j < 8; ++j) {
       ae[i][j] = 0.0;
     }
   }
@@ -194,12 +196,11 @@ int assemble_damage_cell(const double x[8][2], const double chi[9],
     const double eta = Q9_GAUSS_POINTS[gp][1];
     const double w = Q9_GAUSS_WEIGHTS[gp];
 
-    /* Evaluate shape functions and reference gradients. */
-    q4_shape_functions(xi, eta, n4);
-    q4_shape_gradients(xi, eta, dn4dxi);
+    /* Evaluate serendipity Q8 shape functions and reference gradients. */
+    q8_shape_functions(xi, eta, n8);
     q8_shape_gradients(xi, eta, dndxi);
 
-    /* Compute the Jacobian matrix from 8-node coordinates. */
+    /* Compute Jacobian matrix from 8-node coordinates. */
     for (int i = 0; i < 2; ++i) {
       for (int j = 0; j < 2; ++j) {
         double tmp = 0.0;
@@ -217,27 +218,29 @@ int assemble_damage_cell(const double x[8][2], const double chi[9],
     ijac[1][0] = -jac[1][0] * inv;
     ijac[1][1] = jac[0][0] * inv;
 
-    /* Compute Cartesian shape function gradients for Q4:
-       nabla_x N^(4) = J^{-T} nabla_xi N^(4). */
+    /* Compute Cartesian shape function gradients for Q8:
+       nabla_x N^(8) = J^{-T} nabla_xi N^(8). */
     for (int i = 0; i < 2; ++i) {
-      for (int a = 0; a < 4; ++a) {
-        dn4dx[i][a] = ijac[i][0] * dn4dxi[0][a] + ijac[i][1] * dn4dxi[1][a];
+      for (int a = 0; a < 8; ++a) {
+        dndx[i][a] = ijac[i][0] * dndxi[0][a] + ijac[i][1] * dndxi[1][a];
       }
     }
 
     const double w_det = w * det;
+    const double h_plus = history[gp];
+    const double c_mass = gc_over_ell + 2.0 * h_plus;
 
-    /* Accumulate element stiffness / mass matrix A_ab and RHS f_a. */
-    for (int a = 0; a < 4; ++a) {
-      const double na = n4[a];
-      const double grad_x_a = dn4dx[0][a];
-      const double grad_y_a = dn4dx[1][a];
-      for (int b = 0; b < 4; ++b) {
-        const double mass = na * n4[b];
-        const double stiff = grad_x_a * dn4dx[0][b] + grad_y_a * dn4dx[1][b];
-        ae[a][b] += (mass + c * stiff) * w_det;
+    /* Accumulate element matrix A_ab and RHS f_a. */
+    for (int a = 0; a < 8; ++a) {
+      const double na = n8[a];
+      const double grad_x_a = dndx[0][a];
+      const double grad_y_a = dndx[1][a];
+      for (int b = 0; b < 8; ++b) {
+        const double mass = na * n8[b];
+        const double stiff = grad_x_a * dndx[0][b] + grad_y_a * dndx[1][b];
+        ae[a][b] += (c_mass * mass + c_stiff * stiff) * w_det;
       }
-      fe[a] += na * chi[gp] * w_det;
+      fe[a] += 2.0 * h_plus * na * w_det;
     }
   }
   return 0;

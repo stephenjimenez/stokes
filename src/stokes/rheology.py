@@ -47,29 +47,6 @@ def glen_viscosity(temperature: float, d: NDArray[np.float64]) -> float:
     return 0.5 * glen_coefficient(temperature) / np.cbrt(deq2 + MIN_DEQ2)
 
 
-def hayhurst_stress(
-    config: SimulationConfig,
-    sigma: NDArray[np.float64],
-) -> NDArray[np.float64]:
-    """Evaluate Hayhurst driving stress."""
-    alpha = config.damage.alpha
-    beta = config.damage.beta
-    s11 = sigma[..., 0]
-    s22 = sigma[..., 1]
-    s33 = sigma[..., 2]
-    s12 = sigma[..., 3]
-    skk_gp = s11 + s22 + s33
-    p = -skk_gp / 3.0
-    t11 = s11 + p
-    t22 = s22 + p
-    t12 = s12
-    j2 = 0.5 * (t11 * t11 + t22 * t22) + t12 * t12
-    mises = np.sqrt(3.0 * j2)
-    tmp = 0.5 * (s11 - s22)
-    sig1 = np.fmax(0.5 * (s11 + s22) + np.sqrt(tmp * tmp + s12 * s12), s33)
-    return alpha * sig1 + beta * mises + (1.0 - alpha - beta) * skk_gp
-
-
 def interpolate_cauchy_stress(
     config: SimulationConfig,
     uvp: NDArray[np.float64],
@@ -84,13 +61,8 @@ def interpolate_cauchy_stress(
     sigma = np.empty_like(tau)
     sigma[:, 0] = tau[:, 0] - p
     sigma[:, 1] = tau[:, 1] - p
-    sigma[:, 2] = tau[:, 2] - p
+    sigma[:, 2] = -p
     sigma[:, 3] = tau[:, 3]
-
-    # zero out the stress in failed elements
-    if config.damage is not None:
-        sigma[dmg >= config.damage.critical_damage] = 0.0
-
     return sigma
 
 
@@ -110,32 +82,66 @@ def interpolate_strain_rate(
     return d
 
 
-def damage_rate(
+def tensile_strain_energy(
     config: SimulationConfig,
-    chi: NDArray[np.float64],
-    dmg0: NDArray[np.float64],
-    skk: NDArray[np.float64] | None = None,
+    uvp: NDArray[np.float64],
+    phi_gp: NDArray[np.float64],
 ) -> NDArray[np.float64]:
-    """Evaluate damage rate dD/dt from Hayhurst driving stress."""
-    if config.damage is None:
-        return np.zeros_like(dmg0)
+    """Compute virtual tensile elastic strain-energy density psi^+_gp."""
+    if config.phase_field is None:
+        return np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
 
-    ddmg = np.zeros_like(dmg0)
-    active = (dmg0 < config.damage.critical_damage) & (chi > 0.0) & (skk > 0.0)
-    if not active.any():
-        return ddmg
+    pf = config.phase_field
+    e_mod = pf.youngs_modulus
+    nu = pf.poissons_ratio
+    eta_res = pf.residual_stiffness
+    crit_stress = pf.critical_stress
+    psi_c = (crit_stress**2) / (2.0 * e_mod) if crit_stress > 0.0 else 0.0
 
-    chi_eff = chi[active] / (1.0 - dmg0[active])
-    chi_eff_mpa = 1e-6 * chi_eff
-    skk_mpa = 1e-6 * skk
-    if skk is None:
-        k_sig = config.damage.k1
-    else:
-        k_sig = config.damage.k1 + config.damage.k2 * np.maximum(skk_mpa[active], 0.0)
+    # g(phi) = (1 - phi)^2 + eta_res
+    g_phi = (1.0 - phi_gp) ** 2 + eta_res
 
-    ddmg[active] = (
-        config.damage.b_hat
-        * (chi_eff_mpa**config.damage.r)
-        / (1.0 - dmg0[active]) ** k_sig
-    )
-    return ddmg
+    # Q4 pressure nodal values per cell
+    p_dofs = config.mesh.dofs[:, 16:]
+    p_nodes = uvp[p_dofs]
+
+    psi_plus = np.empty((config.mesh.num_cells, 9), dtype=np.float64)
+
+    for gp, (xi, eta) in enumerate(shape.Q9_GAUSS_POINTS):
+        d = interpolate_strain_rate(config=config, uvp=uvp, xi=xi, eta=eta)
+        tau_tilde = deviatoric_stress(config=config, d=d)
+        tau = g_phi[:, gp, None] * tau_tilde
+
+        n4 = shape.q4_shape_functions(xi, eta)
+        p = p_nodes @ n4
+
+        # Degraded Cauchy stress components
+        s_xx = tau[:, 0] - p
+        s_yy = tau[:, 1] - p
+        s_xy = tau[:, 3]
+        s_zz = -p
+
+        # 3D plane-strain principal Cauchy stresses
+        half_diff = 0.5 * (s_xx - s_yy)
+        rad = np.sqrt(half_diff * half_diff + s_xy * s_xy)
+        s_avg = 0.5 * (s_xx + s_yy)
+        sig1 = s_avg + rad
+        sig2 = s_avg - rad
+        sig3 = s_zz
+
+        # Tensile Macaulay positive parts <x>+ = max(0, x)
+        sig1_pos = np.maximum(0.0, sig1)
+        sig2_pos = np.maximum(0.0, sig2)
+        sig3_pos = np.maximum(0.0, sig3)
+
+        # Virtual tensile elastic strain-energy density (Pa)
+        psi_val = (0.5 / e_mod) * (sig1_pos**2 + sig2_pos**2 + sig3_pos**2) - (
+            nu / e_mod
+        ) * (sig1_pos * sig2_pos + sig2_pos * sig3_pos + sig3_pos * sig1_pos)
+
+        if psi_c > 0.0:
+            psi_val = np.maximum(0.0, psi_val - psi_c)
+
+        psi_plus[:, gp] = psi_val
+
+    return psi_plus

@@ -22,7 +22,7 @@
 - **Velocity ($\mathbf{u}$):** meters per year ($\text{m/yr}$)
 - **Pressure ($p$) & Cauchy/Deviatoric Stress ($\boldsymbol{\sigma}, \boldsymbol{\tau}$):** Pascals ($\text{Pa}$). Pressure $p$ is positive in compression ($\boldsymbol{\sigma} = \boldsymbol{\tau} - p\mathbf{I}$).
 - **Glen's Flow Law Softness ($B$, `b_glen`):** $\text{Pa} \cdot \text{yr}^{1/n}$ (with $n = 3$).
-- **Damage Law Rate ($\hat{B}$, `b_hat`):** $\text{MPa}^{-r} \cdot \text{s}^{-1}$ (stresses converted to $\\text{MPa}$ via $10^{-6}$ factor; time steps converted to seconds for damage integration).
+- **Phase-Field Fracture Parameters:** Fracture energy release rate $G_c$ (`gc`): $\text{J/m}^2$, regularization length scale $\ell$ (`length_scale`): $\text{m}$, Young's modulus $E$ (`youngs_modulus`): $\text{Pa}$, Poisson's ratio $\nu$ (`poissons_ratio`), critical stress threshold $\sigma_c$ (`critical_stress`): $\text{Pa}$. Degraded deviatoric viscosity $\mu = g(\phi)\mu_{\text{Glen}}$ with residual stiffness floor $\eta_{\text{res}}$ (`residual_stiffness`). Element erosion threshold $\bar{\phi}_e$ (`erosion_threshold`).
 
 ## Build, Lint & Test Commands
 This repository is managed with `uv`. Always run commands via `uv`:

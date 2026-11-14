@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, NotRequired, Self, TypedDict
 
@@ -28,18 +28,16 @@ class BoundaryConditionsFormat(TypedDict):
     bottom: NotRequired[BCType]
 
 
-class DamageFormat(TypedDict):
-    """Input format for damage parameters."""
+class PhaseFieldFormat(TypedDict):
+    """Input format for phase-field fracture parameters."""
 
-    b_hat: NotRequired[float]
-    r: NotRequired[float]
-    k1: NotRequired[float]
-    k2: NotRequired[float]
-    alpha: NotRequired[float]
-    beta: NotRequired[float]
+    gc: NotRequired[float]
     length_scale: NotRequired[float]
-    max_damage: NotRequired[float]
-    critical_damage: NotRequired[float]
+    youngs_modulus: NotRequired[float]
+    poissons_ratio: NotRequired[float]
+    critical_stress: NotRequired[float]
+    residual_stiffness: NotRequired[float]
+    erosion_threshold: NotRequired[float]
 
 
 class MeshBoxFormat(TypedDict):
@@ -64,7 +62,7 @@ class PlottingFormat(TypedDict):
     output_interval: NotRequired[int]
     plot_cauchy_stress: NotRequired[bool]
     plot_deviatoric_stress: NotRequired[bool]
-    plot_hayhurst_stress: NotRequired[bool]
+    plot_phase_field: NotRequired[bool]
     plot_strain_rate: NotRequired[bool]
 
 
@@ -87,32 +85,28 @@ class SolverFormat(TypedDict):
 
 
 @dataclass
-class DamageConfig:
-    """Container for damage parameters."""
+class PhaseFieldConfig:
+    """Container for phase-field fracture parameters."""
 
-    b_hat: float = 5.23e-7  # MPa^-r s^-1
-    r: float = 0.43
-    k1: float = -2.63
-    k2: float = 7.24  # MPa^-1
-    alpha: float = 0.21
-    beta: float = 0.63
+    gc: float = 50.0  # J/m^2
     length_scale: float = 10.0  # m
-    max_damage: float = 0.99
-    critical_damage: float = 0.6
+    youngs_modulus: float = 9.0e9  # Pa
+    poissons_ratio: float = 0.33
+    critical_stress: float = 0.0  # Pa
+    residual_stiffness: float = 1e-4
+    erosion_threshold: float | None = None
 
     @classmethod
-    def from_dict(cls, d: DamageFormat) -> Self:
-        """Unpack damage configuration from a dictionary."""
+    def from_dict(cls, d: PhaseFieldFormat) -> Self:
+        """Unpack phase-field configuration from a dictionary."""
         return cls(
-            b_hat=d.get("b_hat", cls.b_hat),
-            r=d.get("r", cls.r),
-            k1=d.get("k1", cls.k1),
-            k2=d.get("k2", cls.k2),
-            alpha=d.get("alpha", cls.alpha),
-            beta=d.get("beta", cls.beta),
+            gc=d.get("gc", cls.gc),
             length_scale=d.get("length_scale", cls.length_scale),
-            max_damage=d.get("max_damage", cls.max_damage),
-            critical_damage=d.get("critical_damage", cls.critical_damage),
+            youngs_modulus=d.get("youngs_modulus", cls.youngs_modulus),
+            poissons_ratio=d.get("poissons_ratio", cls.poissons_ratio),
+            critical_stress=d.get("critical_stress", cls.critical_stress),
+            residual_stiffness=d.get("residual_stiffness", cls.residual_stiffness),
+            erosion_threshold=d.get("erosion_threshold", cls.erosion_threshold),
         )
 
 
@@ -123,7 +117,7 @@ class PlottingConfig:
     output_interval: int = 1
     plot_cauchy_stress: bool = True
     plot_deviatoric_stress: bool = True
-    plot_hayhurst_stress: bool = True
+    plot_phase_field: bool = True
     plot_strain_rate: bool = True
 
     @classmethod
@@ -132,10 +126,7 @@ class PlottingConfig:
         return PlottingConfig(
             output_interval=d.get("output_interval", cls.output_interval),
             plot_cauchy_stress=d.get("plot_cauchy_stress", cls.plot_cauchy_stress),
-            plot_hayhurst_stress=d.get(
-                "plot_hayhurst_stress",
-                cls.plot_hayhurst_stress,
-            ),
+            plot_phase_field=d.get("plot_phase_field", cls.plot_phase_field),
             plot_deviatoric_stress=d.get(
                 "plot_deviatoric_stress",
                 cls.plot_deviatoric_stress,
@@ -198,11 +189,12 @@ class SimulationConfig:
     """Complete simulation setup parsed from a TOML file."""
 
     bc: BoundaryConditions
-    damage: DamageConfig | None
     mesh: Mesh
+    phase_field: PhaseFieldConfig | None
     plotting: PlottingConfig
     rheology: RheologyConfig
     solver: SolverConfig
+    bc_edges: list[str] = field(default_factory=list)
 
     @classmethod
     def from_toml(cls, path: str | Path) -> Self:
@@ -210,53 +202,50 @@ class SimulationConfig:
         with Path(path).open(mode="rb") as f:
             raw = tomllib.load(f)
 
-        # unpack sub dictionaries
         bc_raw: BoundaryConditionsFormat = raw.get("boundary_conditions", {})
-        damage_raw: DamageFormat = raw.get("damage")
+        pf_raw: PhaseFieldFormat | None = raw.get("phase_field")
         mesh_raw: MeshFormat = raw.get("mesh")
         plotting_raw: PlottingFormat = raw.get("plotting", {})
         rheology_raw: RheologyFormat = raw.get("rheology", {})
         solver_raw: SolverFormat = raw.get("solver", {})
 
-        # initialize the mesh
         mesh = initialize_mesh(mesh_raw)
 
-        # boundary conditions
+        bc_edges = [
+            k.lower()
+            for k, v in bc_raw.items()
+            if isinstance(v, str) and v.lower() == "free slip"
+        ]
         bc = BoundaryConditions.free_slip_bc(
             mesh=mesh,
-            edges=[
-                k.lower()
-                for k, v in bc_raw.items()
-                if isinstance(v, str) and v.lower() == "free slip"
-            ],
+            edges=bc_edges,
         )
 
+        pf = None if pf_raw is None else PhaseFieldConfig.from_dict(pf_raw)
         return cls(
             bc=bc,
-            damage=None if damage_raw is None else DamageConfig.from_dict(damage_raw),
             mesh=mesh,
+            phase_field=pf,
             plotting=PlottingConfig.from_dict(plotting_raw),
             rheology=RheologyConfig.from_dict(rheology_raw),
             solver=SolverConfig.from_dict(solver_raw),
+            bc_edges=bc_edges,
         )
 
 
 def initialize_mesh(d: MeshFormat) -> Mesh:
     """Initialize the finite element mesh."""
-    # create the base mesh
     quad_mesh = ConformingQuadMesh.from_grid(
         shape=tuple(d["shape"]),
         size=tuple(d["size"]),
     )
 
-    # remove notches
     for notch in d.get("notch", []):
         lower = tuple(notch["lower_corner"])
         upper = tuple(notch["upper_corner"])
         patch = quad_mesh.elements_in_box(lower=lower, upper=upper)
         quad_mesh.remove_elements(patch)
 
-    # apply mesh refinements
     refinements = d.get("refinement", [])
     for ref in refinements:
         lower = tuple(ref["lower_corner"])
