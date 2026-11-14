@@ -94,9 +94,9 @@ class ParaViewWriter:
         grid.point_data["Velocity"] = velocity
         grid.point_data["Pressure"] = pressure
 
-        # evaluate effective degradation at Gauss points
+        # evaluate phase field and effective damage
+        vol = config.mesh.gauss_point_volumes()
         if config.phase_field is not None and phi_nodes is not None:
-            grid.point_data["PhaseField"] = phi_nodes
             n8_gp = np.array(
                 [q8_shape_functions(xi, eta) for xi, eta in Q9_GAUSS_POINTS],
                 dtype=np.float64,
@@ -104,6 +104,16 @@ class ParaViewWriter:
             phi_gp = phi_nodes[config.mesh.cells] @ n8_gp.T
             eta_res = config.phase_field.residual_stiffness
             dmg_eff = 1.0 - ((1.0 - phi_gp) ** 2 + eta_res)
+
+            if config.plotting.plot_phase_field:
+                grid.point_data["PhaseField"] = phi_nodes
+
+            if config.plotting.plot_effective_damage:
+                dmg_eff_nodes = 1.0 - ((1.0 - phi_nodes) ** 2 + eta_res)
+                grid.point_data["EffectiveDamage"] = dmg_eff_nodes
+                grid.cell_data["EffectiveDamage"] = np.average(
+                    dmg_eff, weights=vol, axis=1
+                )
         else:
             dmg_eff = np.zeros((config.mesh.num_cells, 9), dtype=np.float64)
 
@@ -119,7 +129,6 @@ class ParaViewWriter:
             )
 
         # save cell data
-        vol = config.mesh.gauss_point_volumes()
         if config.plotting.plot_cauchy_stress:
             self._save_weighted_tensor(
                 grid=grid,
@@ -155,7 +164,11 @@ class ParaViewWriter:
         vtu_filename = f"{self.base_name}_{len(self.timesteps):05d}.vtu"
         vtu_path = self.output_dir / vtu_filename
         grid.save(str(vtu_path))
-        print(f"- Saved: {vtu_path.relative_to(Path.cwd())}")
+        try:
+            display_path = vtu_path.relative_to(Path.cwd())
+        except ValueError:
+            display_path = vtu_path
+        print(f"- Saved: {display_path}")
 
         # record and write master PVD file
         self.timesteps.append((time, vtu_filename))

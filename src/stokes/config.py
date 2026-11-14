@@ -62,6 +62,7 @@ class PlottingFormat(TypedDict):
     output_interval: NotRequired[int]
     plot_cauchy_stress: NotRequired[bool]
     plot_deviatoric_stress: NotRequired[bool]
+    plot_effective_damage: NotRequired[bool]
     plot_phase_field: NotRequired[bool]
     plot_strain_rate: NotRequired[bool]
 
@@ -117,6 +118,7 @@ class PlottingConfig:
     output_interval: int = 1
     plot_cauchy_stress: bool = True
     plot_deviatoric_stress: bool = True
+    plot_effective_damage: bool = True
     plot_phase_field: bool = True
     plot_strain_rate: bool = True
 
@@ -126,11 +128,15 @@ class PlottingConfig:
         return PlottingConfig(
             output_interval=d.get("output_interval", cls.output_interval),
             plot_cauchy_stress=d.get("plot_cauchy_stress", cls.plot_cauchy_stress),
-            plot_phase_field=d.get("plot_phase_field", cls.plot_phase_field),
             plot_deviatoric_stress=d.get(
                 "plot_deviatoric_stress",
                 cls.plot_deviatoric_stress,
             ),
+            plot_effective_damage=d.get(
+                "plot_effective_damage",
+                cls.plot_effective_damage,
+            ),
+            plot_phase_field=d.get("plot_phase_field", cls.plot_phase_field),
             plot_strain_rate=d.get("plot_strain_rate", cls.plot_strain_rate),
         )
 

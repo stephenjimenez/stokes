@@ -282,3 +282,33 @@ def test_element_erosion_mechanism() -> None:
     assert new_mesh.num_cells == mesh.num_cells - 1
     new_pf = PhaseFieldAssembler(new_mesh)
     assert new_pf.num_points == new_mesh.num_points
+
+
+def test_vtu_export_effective_damage(tmp_path) -> None:
+    """Verify ParaView VTU export contains PhaseField and EffectiveDamage fields."""
+    import pyvista as pv
+
+    from stokes.visualization import ParaViewWriter
+
+    mesh = Mesh.from_grid(shape=(2, 2), size=(2.0, 2.0))
+    cfg = make_config(
+        mesh=mesh,
+        phase_field=PhaseFieldConfig(residual_stiffness=1e-4),
+    )
+    writer = ParaViewWriter(output_dir=tmp_path, base_name="test_out")
+
+    uvp = np.zeros(sum(mesh.num_dofs), dtype=np.float64)
+    phi_nodes = np.linspace(0.0, 0.8, mesh.num_points, dtype=np.float64)
+
+    vtu_file = writer.write_step(config=cfg, time=0.0, uvp=uvp, phi_nodes=phi_nodes)
+    assert vtu_file.exists()
+
+    grid = pv.read(str(vtu_file))
+    # PhaseField and EffectiveDamage in point data
+    assert "PhaseField" in grid.point_data
+    assert "EffectiveDamage" in grid.point_data
+    assert np.allclose(grid.point_data["PhaseField"], phi_nodes)
+
+    # EffectiveDamage in cell data
+    assert "EffectiveDamage" in grid.cell_data
+    assert len(grid.cell_data["EffectiveDamage"]) == mesh.num_cells
