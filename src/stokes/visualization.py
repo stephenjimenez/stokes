@@ -37,6 +37,21 @@ class ParaViewWriter:
         self.pvd_path = self.output_dir / f"{base_name}.pvd"
         self.timesteps = []
 
+    @staticmethod
+    def _save_weighted_tensor(
+        grid: pv.UnstructuredGrid,
+        tensor: NDArray[np.float64],
+        w: NDArray[np.float64],
+        name: str,
+    ) -> None:
+        a = w / w.sum(axis=1, keepdims=True)
+        grid.cell_data[name] = np.einsum("ijk,ij->ik", tensor, a)
+        vtk_arr = grid.cell_data[name].VTKObject
+        vtk_arr.SetComponentName(0, "XX")
+        vtk_arr.SetComponentName(1, "YY")
+        vtk_arr.SetComponentName(2, "ZZ")
+        vtk_arr.SetComponentName(3, "XY")
+
     def write_step(
         self,
         config: SimulationConfig,
@@ -97,12 +112,12 @@ class ParaViewWriter:
         if config.damage is not None:
             grid.cell_data["Damage"] = np.average(dmg, weights=vol, axis=1)
         if config.plotting.plot_cauchy_stress:
-            grid.cell_data["CauchyStress"] = _weighted_average(a=sigma, w=vol)
-            vtk_arr = grid.cell_data["CauchyStress"].VTKObject
-            vtk_arr.SetComponentName(0, "XX")
-            vtk_arr.SetComponentName(1, "YY")
-            vtk_arr.SetComponentName(2, "ZZ")
-            vtk_arr.SetComponentName(3, "XY")
+            self._save_weighted_tensor(
+                grid=grid,
+                tensor=sigma,
+                w=vol,
+                name="CauchyStress",
+            )
         if config.plotting.plot_deviatoric_stress:
             tau = np.empty_like(sigma)
             p = -(sigma[..., 0] + sigma[..., 1] + sigma[..., 2]) / 3.0
@@ -110,12 +125,12 @@ class ParaViewWriter:
             tau[..., 1] = sigma[..., 1] + p
             tau[..., 2] = 0.0
             tau[..., 3] = sigma[..., 3]
-            grid.cell_data["DeviatoricStress"] = _weighted_average(a=tau, w=vol)
-            vtk_arr = grid.cell_data["DeviatoricStress"].VTKObject
-            vtk_arr.SetComponentName(0, "XX")
-            vtk_arr.SetComponentName(1, "YY")
-            vtk_arr.SetComponentName(2, "ZZ")
-            vtk_arr.SetComponentName(3, "XY")
+            self._save_weighted_tensor(
+                grid=grid,
+                tensor=tau,
+                w=vol,
+                name="DeviatoricStress",
+            )
         if config.plotting.plot_hayhurst_stress:
             if config.damage is None:
                 print(
@@ -133,12 +148,7 @@ class ParaViewWriter:
                     xi=xi,
                     eta=eta,
                 )
-            grid.cell_data["StrainRate"] = _weighted_average(a=d, w=vol)
-            vtk_arr = grid.cell_data["StrainRate"].VTKObject
-            vtk_arr.SetComponentName(0, "XX")
-            vtk_arr.SetComponentName(1, "YY")
-            vtk_arr.SetComponentName(2, "ZZ")
-            vtk_arr.SetComponentName(3, "XY")
+            self._save_weighted_tensor(grid=grid, tensor=d, w=vol, name="StrainRate")
 
         # save the VTU file
         vtu_filename = f"{self.base_name}_{len(self.timesteps):05d}.vtu"
@@ -173,10 +183,3 @@ class ParaViewWriter:
         tree = ET.ElementTree(root)
         ET.indent(tree, space="  ", level=0)
         tree.write(self.pvd_path, encoding="utf-8", xml_declaration=True)
-
-
-def _weighted_average(
-    a: NDArray[np.float64],
-    w: NDArray[np.float64],
-) -> NDArray[np.float64]:
-    return np.einsum("eqc,eq->ec", a, w) / w.sum(axis=1, keepdims=True)

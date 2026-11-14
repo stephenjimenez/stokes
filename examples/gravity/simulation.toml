@@ -1,12 +1,12 @@
 # input file for Stokes flow
 
 [mesh]
-shape = [50, 10]
-size = [500.0, 100.0]
+shape = [100, 25]
+size = [500.0, 125.0]
 
 [[mesh.refinement]]
 lower_corner = [400.0, 0.0]
-upper_corner = [500.0, 100.0]
+upper_corner = [500.0, 125.0]
 
 [rheology]
 apply_gravity = true
