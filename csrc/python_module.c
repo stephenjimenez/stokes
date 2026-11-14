@@ -69,7 +69,7 @@ static PyObject* py_eval_strainrate(PyObject* self, PyObject* args) {
   const int (*dofs)[20] = (const int (*)[20])PyArray_DATA(py_dofs);
   const double (*x)[2] = (const double (*)[2])PyArray_DATA(py_x);
   const double* u = (const double*)PyArray_DATA(py_u);
-  double (*d)[3] = (double (*)[4])PyArray_DATA(py_d);
+  double (*d)[4] = (double (*)[4])PyArray_DATA(py_d);
 
   /* Release the GIL during C computation */
   int ierr = 0;
