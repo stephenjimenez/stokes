@@ -1,20 +1,16 @@
 # input file for Stokes flow
 
 [mesh]
-shape = [51, 10]
-size = [510.0, 100.0]
+shape = [100, 25]
+size = [500.0, 125.0]
 
 [[mesh.refinement]]
-lower_corner = [230.0, 50.0]
-upper_corner = [280.0, 100.0]
-
-[[mesh.refinement]]
-lower_corner = [240.0, 60.0]
-upper_corner = [270.0, 100.0]
+lower_corner = [240.0, 0.0]
+upper_corner = [260.0, 125.0]
 
 [[mesh.notch]]
-lower_corner = [250.0, 90.0]
-upper_corner = [260.0, 100.0]
+lower_corner = [245.0, 115.0]
+upper_corner = [255.0, 125.0]
 
 [rheology]
 apply_gravity = true
@@ -29,8 +25,7 @@ k2 = 7.24  # MPa^-1
 alpha = 0.21
 beta = 0.63
 length_scale = 10.0  # m
-kappa = 2.0
-max_damage = 0.99
+max_damage = 0.97
 critical_damage = 0.6
 
 [boundary_conditions]
@@ -40,12 +35,12 @@ bottom = "free slip"
 [solver]
 convergence_tolerance = 1.0e-6
 max_iterations = 50
-num_steps = 160
-time_step = 3.0  # hours
+num_steps = 480
+time_step = 1.0  # hours
 strict_convergence = false # abort if the problem does not converge
 
 [plotting]
-output_interval = 4
+output_interval = 6
 plot_cauchy_stress = true
 plot_deviatoric_stress = true
 plot_strain_rate = false
